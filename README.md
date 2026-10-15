@@ -20,6 +20,7 @@ with C64() as c:
     c.peek(0xD020, 1); c.poke(0x0400, b"A")   # raw memory access
     c.sprites(); c.color_ram()         # VIC sprite state / colour RAM
     c.joy("fire"); c.joy_hold("left")   # agent input bytes $033C/$033E (program must read them)
+    c.joyport("fire", "left")          # real joystick port ($DC00; port=1 -> $DC01), held until next call
     c.record_gif("demo.gif", seconds=3)  # run + capture frames
     c.reload(prg)                      # reset and reload in the same VICE
     # C: from c64 import compile_c; compile_c("game.c")   (cc65)

@@ -23,9 +23,11 @@ PALETTE = [
 # Command codes from the VICE manual, "Binary monitor" chapter
 CMD_MEM_GET, CMD_MEM_SET = 0x01, 0x02
 CMD_REGS_GET = 0x31
+CMD_RESOURCE_SET = 0x52
 CMD_KEYBOARD_FEED = 0x72
 CMD_PING = 0x81
 CMD_DISPLAY_GET = 0x84
+CMD_JOYPORT_SET = 0xA2
 CMD_EXIT, CMD_QUIT, CMD_RESET, CMD_AUTOSTART = 0xAA, 0xBB, 0xCC, 0xDD
 
 
@@ -281,6 +283,22 @@ class C64:
         ]
 
     # ------------------------------------------------------------------ input
+    def set_resource(self, name, value):
+        """Set an integer VICE resource (as in -resource files)."""
+        n = name.encode()
+        self._command(CMD_RESOURCE_SET, struct.pack("<BB", 1, len(n)) + n + struct.pack("<BI", 4, value))
+
+    def joyport(self, *buttons, port=2):
+        """Hold buttons on a real control port; the program sees them in CIA1 ($DC00 = port 2, $DC01 = port 1).
+
+        Works with any program that reads the joystick normally. Level-triggered: stays until the
+        next call; no args releases. Switches the port to VICE's "joyport I/O simulation" device
+        (the only thing the binary monitor can drive), so a real/keyboard joystick on it is replaced.
+        """
+        self.set_resource(f"JoyPort{port}Device", 37)
+        pins = 0x1F & ~sum(JOY_BITS[b] for b in buttons)  # joystick lines are active low
+        self._command(CMD_JOYPORT_SET, struct.pack("<HH", port - 1, pins))
+
     def joy(self, *buttons):
         """Press buttons (up/down/left/right/fire) via the edge-triggered JOY_PRESS byte."""
         self.poke(JOY_PRESS, self.peek(JOY_PRESS)[0] | sum(JOY_BITS[b] for b in buttons))
