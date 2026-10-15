@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from c64 import C64, compile_c
+from retro import C64, compile_c
 
 with C64() as c:
     c.start(compile_c(Path(__file__).with_name("hello.c")))

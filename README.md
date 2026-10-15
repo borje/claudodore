@@ -1,15 +1,15 @@
-# C64 feedback loop
+# C64 / VIC-20 feedback loop
 
 Assemble -> boot headless VICE -> read the screen -> send keys -> screenshot.
 
-Tools (apt on Linux; `brew install acme cc65 vice` on macOS, no xvfb needed): `acme`, `cc65`, `vice` (x64sc 3.7.1), `xvfb`.
-C64 ROMs live in `~/.local/share/vice/C64/` (fetched from VICE's GitHub source; the
+Tools (apt on Linux; `brew install acme cc65 vice` on macOS, no xvfb needed): `acme`, `cc65`, `vice` (x64sc, xvic), `xvfb`.
+C64/VIC-20 ROMs live in `~/.local/share/vice/C64/` / `VIC20/` (fetched from VICE's GitHub source; the
 Ubuntu package ships none).
 
 ```python
-from c64 import C64, assemble
+from retro import C64, assemble  # or VIC20(mem=0|8|16)
 
-prg = assemble("programs/hello/hello.asm")  # ACME -> build/hello.prg
+prg = assemble("programs/c64/hello/hello.asm")  # ACME -> build/hello.prg
 with C64() as c:
     c.start(prg)                       # boot to READY., inject the PRG into RAM, type RUN
     c.wait_for_text("PRESS A KEY")     # run until text appears (returns screen text or None)
@@ -23,7 +23,7 @@ with C64() as c:
     c.joyport("fire", "left")          # real joystick port ($DC00; port=1 -> $DC01), held until next call
     c.record_gif("demo.gif", seconds=3)  # run + capture frames
     c.reload(prg)                      # reset and reload in the same VICE
-    # C: from c64 import compile_c; compile_c("game.c")   (cc65)
+    # C: from retro import compile_c; compile_c("game.c")   (cc65)
 ```
 
 How it behaves (VICE binary monitor, verified on this install):
@@ -35,5 +35,5 @@ How it behaves (VICE binary monitor, verified on this install):
 - `screen_text()` shows graphics characters as `#`; use `screenshot()` for anything
   that isn't plain text.
 
-Layout: `c64/` framework, `programs/<name>/` (`.asm` + `run.py`), `build/` output.
-Run `uv run programs/hello/run.py` to check the whole chain; `uv run programs/sprite/run.py` for the sprite demo.
+Layout: `retro/` framework (`C64`, `VIC20`), `programs/<machine>/<name>/` (`.asm` + `run.py`), `build/<machine>/` output.
+Run `uv run programs/c64/hello/run.py` (or `programs/vic20/hello/run.py`) to check the whole chain; `uv run programs/c64/sprite/run.py` for the sprite demo.

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from c64 import C64, assemble
+from retro import C64, assemble
 
 with C64() as c:
     c.start(assemble(Path(__file__).with_name("joy.asm")))

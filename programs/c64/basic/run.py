@@ -1,7 +1,7 @@
 import struct
 from pathlib import Path
 
-from c64 import BUILD, C64, basic
+from retro import BUILD, C64, basic
 
 prg = basic(Path(__file__).with_name("squares.bas"))
 
@@ -16,4 +16,4 @@ for how in ("inject", "autostart"):
         t = c.wait_for_text("I*I= 25", timeout=20)
         assert t, f"{how} failed:\n{c.screen_text()}"
         print(how, "ok")
-        c.screenshot(BUILD / f"basic_{how}.png")
+        c.screenshot(BUILD / "c64" / f"basic_{how}.png")

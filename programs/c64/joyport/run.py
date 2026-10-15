@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from c64 import C64, assemble
+from retro import C64, assemble
 
 
 def seen(c, addr):

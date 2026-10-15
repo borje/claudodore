@@ -1,4 +1,6 @@
-"""Drive a headless VICE x64sc through its binary monitor.
+"""Drive a headless VICE (x64sc / xvic) through its binary monitor.
+
+`Machine` is the shared base; `retro.c64.C64` and `retro.vic20.VIC20` set the machine specifics.
 
 Gives a feedback loop: assemble -> launch -> read screen -> send keys -> screenshot.
 """
@@ -11,14 +13,6 @@ import subprocess
 import time
 
 HOST, PORT = "127.0.0.1", 6502
-
-# Colodore-ish C64 palette (index = C64 colour 0-15)
-PALETTE = [
-    (0, 0, 0), (255, 255, 255), (136, 57, 50), (103, 182, 189),
-    (139, 63, 150), (85, 160, 73), (64, 49, 141), (191, 206, 114),
-    (139, 84, 41), (87, 66, 0), (184, 105, 98), (80, 80, 80),
-    (120, 120, 120), (148, 224, 137), (120, 105, 196), (159, 159, 159),
-]
 
 # Command codes from the VICE manual, "Binary monitor" chapter
 CMD_MEM_GET, CMD_MEM_SET = 0x01, 0x02
@@ -38,7 +32,7 @@ JOY_BITS = {"up": 1, "down": 2, "left": 4, "right": 8, "fire": 16}
 
 
 def screencode_to_char(c):
-    """C64 screen code -> printable ASCII (uppercase/graphics set; graphics become '#')."""
+    """C64/VIC-20 screen code -> printable ASCII (uppercase/graphics set; graphics become '#')."""
     c &= 0x7F  # ignore reverse bit
     if c == 0:
         return "@"
@@ -51,7 +45,14 @@ def screencode_to_char(c):
     return "#"
 
 
-class C64:
+class Machine:
+    """Base: subclasses set BIN/PALETTE/BASIC_START and implement screen_dims/screen_base/joyport."""
+    BIN = None            # VICE binary, e.g. "x64sc"
+    NAME = None           # for messages
+    PALETTE = None        # index = colour 0-15
+    DISPLAY_CHIP = 0      # display-get chip selector byte
+    BASIC_STARTS = ()     # load addresses that are BASIC programs (pointers get fixed up)
+
     def __init__(self, port=None, warp=False, verbose=False):
         if port is None:  # pick a free port so a stale instance can never be mistaken for ours
             with socket.socket() as s:
@@ -65,14 +66,18 @@ class C64:
         self._req = 0
 
     # ---------------------------------------------------------------- process
+    def extra_args(self):
+        """Extra VICE command-line args (e.g. memory config)."""
+        return []
+
     def start(self, prg=None, timeout=20, run=True):
-        """Boot a fresh C64 to the READY prompt; if prg is given, load and (optionally) run it."""
+        """Boot a fresh machine to the READY prompt; if prg is given, load and (optionally) run it."""
         # xvfb-run is Linux-only; on macOS VICE opens a normal window.
         xvfb = ["xvfb-run", "-a", "-s", "-screen 0 800x600x24"] if shutil.which("xvfb-run") else []
         # real audio unless headless (xvfb)
         cmd = xvfb + [
-            "x64sc", "-default", *(["+sound", "-sounddev", "dummy"] if xvfb else ["-sound"]),
-            "+confirmonexit", "-binarymonitor",
+            self.BIN, "-default", *(["+sound", "-sounddev", "dummy"] if xvfb else ["-sound"]),
+            "+confirmonexit", *self.extra_args(), "-binarymonitor",
             "-binarymonitoraddress", f"ip4://{HOST}:{self.port}",
         ]
         if self.warp:
@@ -96,13 +101,13 @@ class C64:
         # VICE freezes the machine when a monitor client connects; resume it.
         self.resume()
         if self.wait_for_text("READY.", timeout=30) is None:
-            raise RuntimeError("C64 never reached READY.; see /tmp/vice_%d.log" % self.port)
+            raise RuntimeError(f"{self.NAME} never reached READY.; see /tmp/vice_%d.log" % self.port)
         if prg:
             self.load_prg(prg, run=run)
         return self
 
     def load_prg(self, path, run=True):
-        """Inject a .prg straight into RAM (no disk drive needed). Needs the C64 at READY."""
+        """Inject a .prg straight into RAM (no disk drive needed). Needs the machine at READY."""
         data = open(path, "rb").read()
         addr = struct.unpack("<H", data[:2])[0]
         body = data[2:]
@@ -110,7 +115,7 @@ class C64:
         if self.peek(addr, len(body)) != body:
             raise RuntimeError(f"PRG verify failed at ${addr:04x}")
         end = addr + len(body)
-        if addr == 0x0801:  # BASIC program: fix up start-of-variables pointers
+        if addr in self.BASIC_STARTS:  # BASIC program: fix up start-of-variables pointers
             self.poke(0x2D, struct.pack("<H", end))
             self.poke(0x2F, struct.pack("<H", end))
             self.poke(0x31, struct.pack("<H", end))
@@ -122,7 +127,7 @@ class C64:
         self.reset()
         self.resume()
         if self.wait_for_text("READY.", timeout=30) is None:
-            raise RuntimeError("C64 never reached READY. after reset")
+            raise RuntimeError(f"{self.NAME} never reached READY. after reset")
         self.load_prg(prg, run=run)
 
     def stop(self):
@@ -195,7 +200,7 @@ class C64:
             pass  # already running
 
     def run(self, seconds):
-        """Let the C64 run for `seconds` of wall-clock time, then leave it for inspection."""
+        """Let the machine run for `seconds` of wall-clock time, then leave it for inspection."""
         self.resume()
         time.sleep(seconds)
 
@@ -214,22 +219,27 @@ class C64:
         self._command(CMD_MEM_SET, body)
 
     # ----------------------------------------------------------------- screen
+    def screen_dims(self):
+        """(cols, rows) of the text screen."""
+        raise NotImplementedError
+
     def screen_base(self):
-        d018 = self.peek(0xD018)[0]
-        dd00 = self.peek(0xDD00)[0]
-        bank = (~dd00 & 3) * 0x4000
-        return bank + ((d018 >> 4) & 0xF) * 0x400
+        """Address of screen RAM."""
+        raise NotImplementedError
 
     def screen_text(self):
-        """Return the 40x25 text screen as a string (via screen RAM)."""
-        raw = self.peek(self.screen_base(), 1000)
-        rows = ["".join(screencode_to_char(c) for c in raw[r * 40:(r + 1) * 40]) for r in range(25)]
-        return "\n".join(r.rstrip() for r in rows).rstrip("\n")
+        """Return the text screen as a string (via screen RAM)."""
+        cols, rows = self.screen_dims()
+        if not cols * rows:  # video chip not initialised yet (VIC-I registers are 0 right after power-on)
+            return ""
+        raw = self.peek(self.screen_base(), cols * rows)
+        lines = ["".join(screencode_to_char(c) for c in raw[r * cols:(r + 1) * cols]) for r in range(rows)]
+        return "\n".join(r.rstrip() for r in lines).rstrip("\n")
 
     def screen_image(self, scale=2, border=False):
-        """PIL Image of the VIC-II output using the monitor's display-get."""
+        """PIL Image of the video chip output using the monitor's display-get."""
         from PIL import Image
-        data = self._command(CMD_DISPLAY_GET, struct.pack("<BB", 1, 0))  # VICII, 8-bit indexed
+        data = self._command(CMD_DISPLAY_GET, struct.pack("<BB", self.DISPLAY_CHIP, 0))  # 8-bit indexed
         info_len = struct.unpack("<I", data[:4])[0]
         (dw, dh, xo, yo, iw, ih, bpp) = struct.unpack("<HHHHHHB", data[4:4 + 13])
         start = 4 + info_len                      # buffer-length field follows the info fields
@@ -241,15 +251,16 @@ class C64:
         for y in range(dh):
             row = pix[y * dw:(y + 1) * dw]
             for x, v in enumerate(row):
-                px[x, y] = PALETTE[v & 15]
+                px[x, y] = self.PALETTE[v & 15]
         if not border:
-            # Measured on VICE 3.7.1: the reported Y offset is one line too low, so the
-            # real 320x200 area is rows yo-1 .. yo+198 of the buffer (x offset is right).
-            yo -= 1
+            xo, yo = self.crop_origin(xo, yo)
             img = img.crop((xo, yo, xo + iw, yo + ih))
         if scale != 1:
             img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
         return img
+
+    def crop_origin(self, xo, yo):
+        return xo, yo
 
     def screenshot(self, path="screen.png", **kw):
         """Save a PNG of the VIC-II output (see screen_image)."""
@@ -266,39 +277,15 @@ class C64:
         frames[0].save(path, save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
         return path
 
-    # ------------------------------------------------------------ chip state
-    def color_ram(self):
-        """1000 colour-RAM nybbles ($D800), row-major."""
-        return bytes(b & 15 for b in self.peek(0xD800, 1000))
-
-    def sprites(self):
-        """Enabled sprites as dicts: id, x (9-bit), y, color, ptr (sprite data address in VIC bank)."""
-        vic = self.peek(0xD000, 0x2F)
-        base = self.screen_base()
-        bank = base & 0xC000
-        ptrs = self.peek(base + 0x3F8, 8)
-        return [
-            {"id": i, "x": vic[2 * i] | (0x100 if vic[0x10] >> i & 1 else 0), "y": vic[2 * i + 1],
-             "color": vic[0x27 + i] & 15, "ptr": bank + ptrs[i] * 64}
-            for i in range(8) if vic[0x15] >> i & 1
-        ]
-
     # ------------------------------------------------------------------ input
     def set_resource(self, name, value):
         """Set an integer VICE resource (as in -resource files)."""
         n = name.encode()
         self._command(CMD_RESOURCE_SET, struct.pack("<BB", 1, len(n)) + n + struct.pack("<BI", 4, value))
 
-    def joyport(self, *buttons, port=2):
-        """Hold buttons on a real control port; the program sees them in CIA1 ($DC00 = port 2, $DC01 = port 1).
-
-        Works with any program that reads the joystick normally. Level-triggered: stays until the
-        next call; no args releases. Switches the port to VICE's "joyport I/O simulation" device
-        (the only thing the binary monitor can drive), so a real/keyboard joystick on it is replaced.
-        """
-        self.set_resource(f"JoyPort{port}Device", 37)
-        pins = 0x1F & ~sum(JOY_BITS[b] for b in buttons)  # joystick lines are active low
-        self._command(CMD_JOYPORT_SET, struct.pack("<HH", port - 1, pins))
+    def joyport(self, *buttons, port=None):
+        """Hold buttons on a real control port (see subclasses)."""
+        raise NotImplementedError
 
     def joy(self, *buttons):
         """Press buttons (up/down/left/right/fire) via the edge-triggered JOY_PRESS byte."""

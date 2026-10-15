@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from c64 import BUILD, C64, assemble
+from retro import BUILD, C64, assemble
 
 prg = assemble(Path(__file__).with_name("hello.asm"))
 print("assembled:", prg)
@@ -19,7 +19,7 @@ with C64() as c:
     c.wait(1)   # let it run 1s, then it is stopped for inspection
     print("--- screen after typing q ---")
     print(c.screen_text())
-    print("screenshot:", c.screenshot(BUILD / "hello.png"))
+    print("screenshot:", c.screenshot(BUILD / "c64" / "hello.png"))
 
     c.reload(prg)  # same VICE process, fresh machine
     assert c.wait_for_text("PRESS A KEY", timeout=30), "reload failed"
