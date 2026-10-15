@@ -3,40 +3,41 @@
 CHROUT = $ffd2
 JIFFY  = $a2
 SCR    = $1e00
-BOARD  = $1800
+BOARD  = $1a00
 ; zero page pointers
 sptr   = $fb
 cptr   = $fd
 ; variables
-px     = $1900
-py     = $1901
-pid    = $1902
-pcol   = $1903
-cells  = $1904          ; 4 x (x,y)
-scells = $190c
-t1     = $1914
-t2     = $1915
-t3     = $1916
-row    = $1917
-idx    = $1918
-ci     = $1919
-hcnt   = $191a
-gcnt   = $191b
-gint   = $191c
-score  = $191d          ; 2 bytes BCD
-lines  = $191f          ; BCD
-nlines = $1920
-joy    = $1921
-prev   = $1922
-rnd    = $1923
-dirty  = $1924
-nxt    = $1925
-ncol   = $1926
-snd    = $1927          ; sound: frames left, note, per-frame note delta
-snote  = $1928
-sdelta = $1929
-pch    = $192a
-ghost  = $192b          ; 1 = show landing outline (toggle with G)
+px     = $1b00
+py     = $1b01
+pid    = $1b02
+pcol   = $1b03
+cells  = $1b04          ; 4 x (x,y)
+scells = $1b0c
+t1     = $1b14
+t2     = $1b15
+t3     = $1b16
+row    = $1b17
+idx    = $1b18
+ci     = $1b19
+hcnt   = $1b1a
+gcnt   = $1b1b
+gint   = $1b1c
+score  = $1b1d          ; 2 bytes BCD
+lines  = $1b1f          ; BCD
+nlines = $1b20
+joy    = $1b21
+prev   = $1b22
+rnd    = $1b23
+dirty  = $1b24
+nxt    = $1b25
+ncol   = $1b26
+snd    = $1b27          ; sound: frames left, note, per-frame note delta
+snote  = $1b28
+sdelta = $1b29
+pch    = $1b2a
+cnt    = $1b2c
+ghost  = $1b2b          ; 1 = show landing outline (toggle with G)
 CH_BLK   = 60           ; custom tiles (screen codes 60-62)
 CH_GHOST = 61
 CH_WALL  = 62
@@ -53,6 +54,19 @@ J_RT   = $80
         inx
         cpx #.len
         bne .l
+}
+
+!macro cyc .row {               ; colour-cycle one title row
+        ldx #20
+.l      txa
+        clc
+        adc t1
+        and #7
+        tay
+        lda pal,y
+        sta SCR+$7800+66+.row*22,x
+        dex
+        bpl .l
 }
 
 !macro fill .dst, .col, .len {
@@ -95,6 +109,12 @@ J_RT   = $80
         sta $9005
         lda #0
         sta ghost
+        lda JIFFY
+        ora #1
+        sta rnd
+        jsr intro
+        lda #$93                ; clear for the game
+        jsr CHROUT
         jsr walls
         +puts SCR+22, t_score, 5
         +puts SCR+88, t_lines, 5
@@ -238,6 +258,73 @@ nograv:
         beq +
         jsr draw
 +       jmp loop
+
+; title screen: cycling TETRIS, blinking "press fire", pieces raining below; fire/any key starts
+intro:
+        ldx #0
+-       ldy #32
+        lda title,x
+        cmp #35                 ; '#'
+        bne +
+        ldy #CH_BLK
++       tya
+        sta SCR+66,x
+        inx
+        cpx #110
+        bne -
+        +puts SCR+9*22+6, t_fire, 10
+        jsr spawn
+        lda #3
+        sta px
+        lda #10
+        sta py
+        lda #0
+        sta cnt
+iloop:  jsr waitframe
+        inc cnt
+        lda cnt
+        lsr
+        lsr
+        sta t1
+        +cyc 0
+        +cyc 1
+        +cyc 2
+        +cyc 3
+        +cyc 4
+        lda cnt
+        and #$10
+        bne boff
+        +fill SCR+$7800+9*22+6, 1, 10
+        jmp bdone
+boff:   +fill SCR+$7800+9*22+6, 0, 10
+bdone:  lda cnt
+        and #3
+        bne irain
+        lda #32                 ; erase, move, redraw the raining piece
+        sta pch
+        jsr drawpiece
+        inc py
+        lda py
+        cmp #18
+        bcc rdraw
+        jsr spawn
+        jsr random7
+        sta px
+        lda #10
+        sta py
+rdraw:  lda #CH_BLK
+        sta pch
+        jsr drawpiece
+irain:  jsr readjoy
+        and #J_FIRE
+        bne istart
+        jsr $ffe4
+        bne istart
+        jmp iloop
+istart: lda #50
+        ldx #10
+        ldy #5
+        jmp sfx
 
 waitframe:
         lda JIFFY
@@ -778,9 +865,17 @@ scrhi:  !for i, 0, 20 { !byte >(SCR+27+i*22) }
 tiles:  !byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
         !byte $fe,$82,$82,$82,$82,$82,$fe,$00
         !byte $ff,$ae,$ae,$ae,$ff,$ba,$ba,$ba
+title:
+        !text "### ### ### ##  # ### "
+        !text " #  #    #  # # # #   "
+        !text " #  ###  #  ##  # ### "
+        !text " #  #    #  # # #   # "
+        !text " #  ###  #  # # # ### "
+pal:    !byte 2,7,5,3,6,4,5,3
 t_score: !scr "score"
 t_lines: !scr "lines"
 t_next:  !scr "next"
 t_level: !scr "level"
 t_over:  !scr "game over"
 t_fire:  !scr "press fire"
+!if * > BOARD { !error "code overlaps the board" }  ; code, then board, variables and the $1C00 charset

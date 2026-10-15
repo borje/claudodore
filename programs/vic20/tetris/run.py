@@ -3,7 +3,7 @@ from pathlib import Path
 
 from retro import BUILD, VIC20, assemble
 
-PX, PY, CELLS, SCORE, LINES, BOARD, NXT = 0x1900, 0x1901, 0x1904, 0x191D, 0x191F, 0x1800, 0x1925
+PX, PY, CELLS, SCORE, LINES, BOARD, NXT = 0x1B00, 0x1B01, 0x1B04, 0x1B1D, 0x1B1F, 0x1A00, 0x1B25
 
 with VIC20(mem=0) as c:
     c.start(assemble(Path(__file__).with_name("tetris.asm")))
@@ -13,7 +13,13 @@ with VIC20(mem=0) as c:
         sys.exit()
     c.wait(1)
     t = c.screen_text()
-    assert "SCORE" in t and "LINES" in t and "NEXT" in t and "LEVEL" in t, t
+    assert "PRESS FIRE" in t and "SCORE" not in t, t  # title screen
+    assert c.peek(0x1E00 + 66, 110).count(60) == 51, "title blocks"
+    c.screenshot(BUILD / "vic20" / "tetris0.png")
+    c.joyport("fire"); c.wait(0.3); c.joyport()
+    c.wait(1)
+    t = c.screen_text()
+    assert "PRESS FIRE" not in t and "SCORE" in t and "LINES" in t and "NEXT" in t and "LEVEL" in t, t
     assert c.peek(0x9005)[0] & 15 == 15 and c.peek(0x1C00 + 60 * 8, 8) == bytes([0xFF] * 8), "custom charset"
     ghosts = lambda: c.peek(0x1E00, 506).count(61)
     assert ghosts() == 0, "ghost should be off by default"
@@ -34,7 +40,7 @@ with VIC20(mem=0) as c:
     assert c.peek(PX)[0] > x1
 
     # rotate (fire edge) changes the cells (unless it is the O piece)
-    c.poke(0x1902, bytes([2]))  # force T piece
+    c.poke(0x1B02, bytes([2]))  # force T piece
     c.poke(CELLS, bytes([0, 1, 1, 1, 2, 1, 1, 0]))
     c.poke(PX, bytes([3])); c.poke(PY, bytes([5]))
     before = c.peek(CELLS, 8)
@@ -60,7 +66,7 @@ with VIC20(mem=0) as c:
     assert c.peek(0x900C)[0] & 0x80, "no line-clear sound"
     c.wait(2)
     assert c.peek(0x900C)[0] == 0, "sound stuck on"
-    assert c.peek(0x1902)[0] == n, "next piece not spawned"  # pid == previous nxt
+    assert c.peek(0x1B02)[0] == n, "next piece not spawned"  # pid == previous nxt
     assert c.peek(LINES)[0] == 1, c.peek(LINES)[0]
     assert c.peek(SCORE, 2) == bytes([0x10, 0]), c.peek(SCORE, 2)
     row = c.peek(BOARD + 190, 10)  # bar's 3 leftover cells shifted down into x=9
