@@ -35,6 +35,11 @@ ncol   = $1926
 snd    = $1927          ; sound: frames left, note, per-frame note delta
 snote  = $1928
 sdelta = $1929
+pch    = $192a
+ghost  = $192b          ; 1 = show landing outline (toggle with G)
+CH_BLK   = 60           ; custom tiles (screen codes 60-62)
+CH_GHOST = 61
+CH_WALL  = 62
 J_UP   = $04
 J_DN   = $08
 J_LF   = $10
@@ -50,6 +55,14 @@ J_RT   = $80
         bne .l
 }
 
+!macro fill .dst, .col, .len {
+        ldx #.len-1
+        lda #.col
+.l      sta .dst,x
+        dex
+        bpl .l
+}
+
 * = $1001
         !byte $0d,$10,$0a,$00,$9e
         !text "4112"
@@ -62,12 +75,35 @@ J_RT   = $80
         jsr CHROUT
         lda #8                  ; black background and border
         sta $900f
-        lda #10                 ; volume
+        lda #$1a                ; aux colour (multicolour highlight) white, volume 10
         sta $900e
+        ; charset in RAM at $1C00 (copy of the ROM's first 64 chars + our tiles)
+        ldx #0
+-       lda $8000,x
+        sta $1c00,x
+        lda $8100,x
+        sta $1d00,x
+        inx
+        bne -
+        ldx #23
+-       lda tiles,x
+        sta $1c00+CH_BLK*8,x
+        dex
+        bpl -
+        lda $9005
+        ora #$0f
+        sta $9005
+        lda #0
+        sta ghost
         jsr walls
         +puts SCR+22, t_score, 5
         +puts SCR+88, t_lines, 5
         +puts SCR+61, t_next, 4
+        +puts SCR+154, t_level, 5
+        +fill SCR+$7800+22, 7, 5
+        +fill SCR+$7800+88, 7, 5
+        +fill SCR+$7800+61, 7, 4
+        +fill SCR+$7800+154, 7, 5
         lda JIFFY
         ora #1
         sta rnd
@@ -113,7 +149,15 @@ loop:
         jsr sfx
 +       lda joy
         sta prev
-        ; left/right with auto-repeat
+        jsr $ffe4               ; GETIN: G toggles the ghost
+        cmp #$47
+        bne +
+        lda ghost
+        eor #1
+        sta ghost
+        inc dirty
++       ; left/right with auto-repeat
+        lda joy
         and #J_LF|J_RT
         bne +
         sta hcnt
@@ -162,6 +206,7 @@ nohmove:
         jsr fits
         beq nograv
         dec py
+        jsr draw                ; make sure the final position is on screen
         jsr lock
         lda #15
         ldx #4
@@ -398,14 +443,22 @@ clear:
         sta nlines
         lda #19
         sta row
-cl1:    jsr rowidx
-        ldy #10
--       lda BOARD,x
-        beq cl2
-        inx
-        dey
-        bne -
+cf1:    jsr rowfull
+        bne +
         inc nlines
+        jsr flashrow
++       dec row
+        bpl cf1
+        lda nlines
+        beq +
+        ldx #8                  ; let the flash show
+-       jsr waitframe
+        dex
+        bne -
++       lda #19
+        sta row
+cl1:    jsr rowfull
+        bne cl2
         jsr rmrow
         jmp cl1
 cl2:    dec row
@@ -445,6 +498,36 @@ cl2:    dec row
         ldy #4
         jsr sfx
 +       rts
+
+; Z set if board row `row` is full
+rowfull:
+        jsr rowidx
+        ldy #10
+-       lda BOARD,x
+        beq +
+        inx
+        dey
+        bne -
+        lda #0
+        rts
++       lda #1
+        rts
+
+; recolour screen row `row` white
+flashrow:
+        ldx row
+        lda scrlo,x
+        sta cptr
+        lda scrhi,x
+        clc
+        adc #$78
+        sta cptr+1
+        lda #1                  ; white
+        ldy #10
+-       sta (cptr),y
+        dey
+        bne -
+        rts
 
 ; X = 10*row
 rowidx:
@@ -499,7 +582,7 @@ dr2:    ldx idx
         ldx #1
         bne dr3
 +       tax
-        lda #160
+        lda #CH_BLK
 dr3:    sta (sptr),y
         txa
         sta (cptr),y
@@ -511,6 +594,26 @@ dr3:    sta (sptr),y
         lda row
         cmp #20
         bne dr1
+        lda ghost
+        beq noghost
+        lda py                  ; ghost: where it would land
+        pha
+-       inc py
+        jsr fits
+        beq -
+        dec py
+        lda #CH_GHOST
+        sta pch
+        jsr drawpiece
+        pla
+        sta py
+noghost:
+        lda #CH_BLK
+        sta pch
+        ; fall through
+
+; draw the 4 cells of the current piece with char `pch`
+drawpiece:
         lda #0
         sta ci
 dr4:    ldx ci
@@ -534,7 +637,7 @@ dr4:    ldx ci
         adc #$78
         sta cptr+1
         ldy #0
-        lda #160
+        lda pch
         sta (sptr),y
         lda pcol
         sta (cptr),y
@@ -568,9 +671,9 @@ wbot:   ldy #11
         dey
         bpl -
         rts
-wput:   lda #102
+wput:   lda #CH_WALL
         sta (sptr),y
-        lda #1
+        lda #$0a                ; red bricks, white mortar (multicolour)
         sta (cptr),y
         rts
 
@@ -599,6 +702,13 @@ showstats:
         jsr bcd
         stx SCR+110
         sta SCR+111
+        lda lines               ; level = tens digit
+        lsr
+        lsr
+        lsr
+        lsr
+        ora #$30
+        sta SCR+176
         ; fall through
 
 ; preview of `nxt` in the 4x4 box at row 3, col 17
@@ -638,7 +748,7 @@ shownext:
         clc
         adc shapes,x            ; + x
         tax
-        lda #160
+        lda #CH_BLK
         sta SCR+83,x
         lda ncol
         sta SCR+$7800+83,x
@@ -663,8 +773,14 @@ pts:    !byte 0,$10,$30,$50,$80
 ; screen address of board row y, wall column (21 = bottom wall row)
 scrlo:  !for i, 0, 20 { !byte <(SCR+27+i*22) }
 scrhi:  !for i, 0, 20 { !byte >(SCR+27+i*22) }
+; 8x8 tiles for CH_BLK, CH_GHOST, CH_WALL
+; CH_BLK/CH_GHOST are hires; CH_WALL is multicolour 4x8 (10 = cell colour, 11 = aux white)
+tiles:  !byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+        !byte $fe,$82,$82,$82,$82,$82,$fe,$00
+        !byte $ff,$ae,$ae,$ae,$ff,$ba,$ba,$ba
 t_score: !scr "score"
 t_lines: !scr "lines"
 t_next:  !scr "next"
+t_level: !scr "level"
 t_over:  !scr "game over"
 t_fire:  !scr "press fire"

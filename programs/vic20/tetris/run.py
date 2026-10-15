@@ -13,9 +13,16 @@ with VIC20(mem=0) as c:
         sys.exit()
     c.wait(1)
     t = c.screen_text()
-    assert "SCORE" in t and "LINES" in t and "NEXT" in t, t
+    assert "SCORE" in t and "LINES" in t and "NEXT" in t and "LEVEL" in t, t
+    assert c.peek(0x9005)[0] & 15 == 15 and c.peek(0x1C00 + 60 * 8, 8) == bytes([0xFF] * 8), "custom charset"
+    ghosts = lambda: c.peek(0x1E00, 506).count(61)
+    assert ghosts() == 0, "ghost should be off by default"
+    c.type("g"); c.wait(0.3)
+    assert ghosts() == 4, "G should show the ghost"
+    c.type("g"); c.wait(0.3)
+    assert ghosts() == 0, "G again should hide it"
     # preview: 4 solid cells in the 4x4 box at screen row 3, col 17
-    assert sum(c.peek(0x1E00 + 83 + 22 * r, 4).count(160) for r in range(4)) == 4
+    assert sum(c.peek(0x1E00 + 83 + 22 * r, 4).count(60) for r in range(4)) == 4
     c.screenshot(BUILD / "vic20" / "tetris1.png")
 
     # move left/right
