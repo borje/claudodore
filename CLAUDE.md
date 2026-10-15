@@ -36,5 +36,6 @@ Needs system tools: `acme`, `cc65` (`cl65`), `x64sc` (VICE; macOS: `brew install
 ## Working on the framework
 
 - Every framework capability gets a `programs/<name>/` program plus a `run.py` that asserts it end to end (a tiny asm program that mirrors the register/byte under test into screen RAM works well). A monitor command returning OK does not mean it did anything: `joyport` was accepted for a plain joystick yet had no effect until the device type was switched.
+- C64 memory map / register reference: `docs/mapping-c64.txt` ("Mapping the Commodore 64", 526KB). Too big to read whole; grep it by address or name (e.g. `D015`, `53269`, `SPRITE`) and read only the matching range.
 - VICE docs are not installed by brew. For monitor capabilities, read the upstream `vice/doc/vice.texi` (binary monitor chapter) and `vice/src/monitor/monitor_binary.c` from github.com/VICE-Team/svn-mirror; the command's C handler shows what it actually does.
 - Deliberately not built (judged over-scope vs. github.com/dexmac221/C64AIToolChain): VLM screenshot analysis (read `screenshot()` PNGs directly), the System 1/2 agent control loop, per-game shell launchers. Not yet built, add when a program needs them: asset pipeline (sprite sheets, image-to-sprite), cycle/frame-loss profiling, scheduled monitor commands during GIF recording.
