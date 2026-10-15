@@ -20,3 +20,7 @@ with C64() as c:
     print("--- screen after typing q ---")
     print(c.screen_text())
     print("screenshot:", c.screenshot(BUILD / "hello.png"))
+
+    c.reload(prg)  # same VICE process, fresh machine
+    assert c.wait_for_text("PRESS A KEY", timeout=30), "reload failed"
+    print("reload ok")

@@ -18,6 +18,11 @@ with C64() as c:
     print(c.screen_text())             # 40x25 text read from screen RAM
     c.screenshot("screen.png")         # real VIC-II output as PNG (shows sprites, colours, graphics)
     c.peek(0xD020, 1); c.poke(0x0400, b"A")   # raw memory access
+    c.sprites(); c.color_ram()         # VIC sprite state / colour RAM
+    c.joy("fire"); c.joy_hold("left")   # agent input bytes $033C/$033E (program must read them)
+    c.record_gif("demo.gif", seconds=3)  # run + capture frames
+    c.reload(prg)                      # reset and reload in the same VICE
+    # C: from c64 import compile_c; compile_c("game.c")   (cc65)
 ```
 
 How it behaves (VICE binary monitor, verified on this install):

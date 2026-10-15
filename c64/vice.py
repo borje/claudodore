@@ -29,6 +29,12 @@ CMD_DISPLAY_GET = 0x84
 CMD_EXIT, CMD_QUIT, CMD_RESET, CMD_AUTOSTART = 0xAA, 0xBB, 0xCC, 0xDD
 
 
+# Agent input convention (programs opt in): OR a bit into JOY_PRESS (the program clears it after
+# reading -> edge-triggered), or set bits in JOY_HOLD (level-triggered).
+JOY_PRESS, JOY_HOLD = 0x033C, 0x033E
+JOY_BITS = {"up": 1, "down": 2, "left": 4, "right": 8, "fire": 16}
+
+
 def screencode_to_char(c):
     """C64 screen code -> printable ASCII (uppercase/graphics set; graphics become '#')."""
     c &= 0x7F  # ignore reverse bit
@@ -98,6 +104,8 @@ class C64:
         addr = struct.unpack("<H", data[:2])[0]
         body = data[2:]
         self.poke(addr, body)
+        if self.peek(addr, len(body)) != body:
+            raise RuntimeError(f"PRG verify failed at ${addr:04x}")
         end = addr + len(body)
         if addr == 0x0801:  # BASIC program: fix up start-of-variables pointers
             self.poke(0x2D, struct.pack("<H", end))
@@ -105,6 +113,14 @@ class C64:
             self.poke(0x31, struct.pack("<H", end))
         if run:
             self.type("RUN\n")
+
+    def reload(self, prg, run=True):
+        """Hard-reset the running machine and load prg again (no new VICE process)."""
+        self.reset()
+        self.resume()
+        if self.wait_for_text("READY.", timeout=30) is None:
+            raise RuntimeError("C64 never reached READY. after reset")
+        self.load_prg(prg, run=run)
 
     def stop(self):
         try:
@@ -207,8 +223,8 @@ class C64:
         rows = ["".join(screencode_to_char(c) for c in raw[r * 40:(r + 1) * 40]) for r in range(25)]
         return "\n".join(r.rstrip() for r in rows).rstrip("\n")
 
-    def screenshot(self, path="screen.png", scale=2, border=False):
-        """Save a PNG of the VIC-II output using the monitor's display-get."""
+    def screen_image(self, scale=2, border=False):
+        """PIL Image of the VIC-II output using the monitor's display-get."""
         from PIL import Image
         data = self._command(CMD_DISPLAY_GET, struct.pack("<BB", 1, 0))  # VICII, 8-bit indexed
         info_len = struct.unpack("<I", data[:4])[0]
@@ -230,10 +246,49 @@ class C64:
             img = img.crop((xo, yo, xo + iw, yo + ih))
         if scale != 1:
             img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
-        img.save(path)
+        return img
+
+    def screenshot(self, path="screen.png", **kw):
+        """Save a PNG of the VIC-II output (see screen_image)."""
+        self.screen_image(**kw).save(path)
         return path
 
+    def record_gif(self, path, seconds=5, interval=0.15, fps=7, scale=1):
+        """Run the machine, capturing a frame every `interval` s of wall time, and save a GIF."""
+        frames = []
+        end = time.time() + seconds
+        while time.time() < end:
+            self.run(interval)
+            frames.append(self.screen_image(scale=scale))
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
+        return path
+
+    # ------------------------------------------------------------ chip state
+    def color_ram(self):
+        """1000 colour-RAM nybbles ($D800), row-major."""
+        return bytes(b & 15 for b in self.peek(0xD800, 1000))
+
+    def sprites(self):
+        """Enabled sprites as dicts: id, x (9-bit), y, color, ptr (sprite data address in VIC bank)."""
+        vic = self.peek(0xD000, 0x2F)
+        base = self.screen_base()
+        bank = base & 0xC000
+        ptrs = self.peek(base + 0x3F8, 8)
+        return [
+            {"id": i, "x": vic[2 * i] | (0x100 if vic[0x10] >> i & 1 else 0), "y": vic[2 * i + 1],
+             "color": vic[0x27 + i] & 15, "ptr": bank + ptrs[i] * 64}
+            for i in range(8) if vic[0x15] >> i & 1
+        ]
+
     # ------------------------------------------------------------------ input
+    def joy(self, *buttons):
+        """Press buttons (up/down/left/right/fire) via the edge-triggered JOY_PRESS byte."""
+        self.poke(JOY_PRESS, self.peek(JOY_PRESS)[0] | sum(JOY_BITS[b] for b in buttons))
+
+    def joy_hold(self, *buttons):
+        """Set the held buttons (level-triggered JOY_HOLD byte); no args releases all."""
+        self.poke(JOY_HOLD, sum(JOY_BITS[b] for b in buttons))
+
     def type(self, text, raw=False):
         """Feed text to the keyboard buffer as if typed. \\n = RETURN.
 
