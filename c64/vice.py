@@ -263,12 +263,3 @@ class C64:
             if needle.upper() in t:
                 return t
         return None
-
-
-def assemble(src, out=None):
-    """Assemble with ACME -> .prg. Returns the output path."""
-    out = out or os.path.splitext(src)[0] + ".prg"
-    r = subprocess.run(["acme", "-f", "cbm", "-o", out, src], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError("ACME failed:\n" + r.stdout + r.stderr)
-    return out

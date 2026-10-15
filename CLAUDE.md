@@ -4,17 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Feedback loop for C64 development: assemble with ACME -> boot headless VICE (`x64sc`, under `xvfb-run` if available, else a normal window) -> drive it through VICE's binary monitor (TCP) -> read screen RAM / screenshot. All logic lives in `c64.py` (`C64` class + `assemble()`); `hello.asm` is the sample program; `test_loop.py` is the end-to-end check.
+Feedback loop for C64 development: assemble with ACME -> boot headless VICE (`x64sc`, under `xvfb-run` if available, else a normal window) -> drive it through VICE's binary monitor (TCP) -> read screen RAM / screenshot. Layout:
+- `c64/` — framework package: `vice.py` (`C64` class), `asm.py` (`assemble()`, `BUILD` dir), re-exported from `c64/__init__.py`.
+- `programs/<name>/` — one dir per program: `<name>.asm` + `run.py` (assemble, drive VICE, assert/screenshot). `hello` is the end-to-end check, `sprite` the sprite demo.
+- `build/` — gitignored output (`.prg`, `.png`).
 
-Needs system tools: `acme`, `x64sc` (VICE; macOS: `brew install acme vice`, tested on 3.10; Linux 3.7.1 also needs `xvfb-run`, used automatically when on PATH), plus Pillow for `screenshot()` (managed by uv: `pyproject.toml`, `uv sync`). Linux only: C64 ROMs must be in `~/.local/share/vice/C64/` (brew VICE bundles them).
+Needs system tools: `acme`, `x64sc` (VICE; macOS: `brew install acme vice`, tested on 3.10; Linux 3.7.1 also needs `xvfb-run`, used automatically when on PATH), plus Pillow for `screenshot()` (managed by uv; `c64` is installed editable via `uv sync`). Linux only: C64 ROMs must be in `~/.local/share/vice/C64/` (brew VICE bundles them).
 
 ## Commands
 
-- Full chain test: `uv run test_loop.py` (assembles `hello.asm`, boots, types `q`, writes `screen.png`; exits 1 on timeout)
-- Assemble only: `acme -f cbm -o hello.prg hello.asm`
+- Full chain test: `uv run programs/hello/run.py` (assembles `hello.asm`, boots, types `q`, writes `build/hello.png`; exits 1 on timeout)
+- Assemble only: `acme -f cbm -o build/hello.prg programs/hello/hello.asm`
 - VICE stdout/stderr go to `/tmp/vice_<port>.log`. Port is picked free per instance.
-- Sprite demo: `uv run sprite_demo.py` (assembles `sprite.asm`, asserts sprite 0 moves in X and Y, writes `sprite1.png`/`sprite2.png`)
-- No linter, no pytest suite; `test_loop.py` is a script.
+- Sprite demo: `uv run programs/sprite/run.py` (asserts sprite 0 moves in X and Y, writes `build/sprite{1,2}.png`)
+- No linter, no pytest suite; each `run.py` is a script; new programs follow the same pattern.
 
 ## Architecture / gotchas
 

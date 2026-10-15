@@ -9,7 +9,7 @@ Ubuntu package ships none).
 ```python
 from c64 import C64, assemble
 
-prg = assemble("hello.asm")            # ACME -> hello.prg
+prg = assemble("programs/hello/hello.asm")  # ACME -> build/hello.prg
 with C64() as c:
     c.start(prg)                       # boot to READY., inject the PRG into RAM, type RUN
     c.wait_for_text("PRESS A KEY")     # run until text appears (returns screen text or None)
@@ -29,4 +29,5 @@ How it behaves (VICE binary monitor, verified on this install):
 - `screen_text()` shows graphics characters as `#`; use `screenshot()` for anything
   that isn't plain text.
 
-Run `uv run test_loop.py` to check the whole chain.
+Layout: `c64/` framework, `programs/<name>/` (`.asm` + `run.py`), `build/` output.
+Run `uv run programs/hello/run.py` to check the whole chain; `uv run programs/sprite/run.py` for the sprite demo.
