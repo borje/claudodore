@@ -2,7 +2,7 @@
 
 Assemble -> boot headless VICE -> read the screen -> send keys -> screenshot.
 
-Tools (apt on Linux; `brew install acme vice` on macOS, no xvfb needed): `acme`, `cc65`, `vice` (x64sc 3.7.1), `xvfb`.
+Tools (apt on Linux; `brew install acme cc65 vice` on macOS, no xvfb needed): `acme`, `cc65`, `vice` (x64sc 3.7.1), `xvfb`.
 C64 ROMs live in `~/.local/share/vice/C64/` (fetched from VICE's GitHub source; the
 Ubuntu package ships none).
 
