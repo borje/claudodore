@@ -23,7 +23,7 @@ with C64() as c:
     c.joyport("fire", "left")          # real joystick port ($DC00; port=1 -> $DC01), held until next call
     c.record_gif("demo.gif", seconds=3)  # run + capture frames
     c.reload(prg)                      # reset and reload in the same VICE
-    # C: from retro import compile_c; compile_c("game.c")   (cc65)
+    # C: from retro import compile_c; compile_c("game.c")   (cc65); compile_oscar("game.c") (Oscar64, see docs/oscar64.md)
 ```
 
 How it behaves (VICE binary monitor, verified on this install):

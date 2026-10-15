@@ -39,7 +39,7 @@ def compile_c(*srcs, out=None, cfg=None, target="c64"):
     return _run(cmd, "cl65", out.resolve())
 
 
-def compile_oscar(src, out=None, target="c64", *flags):
+def compile_oscar(src, *flags, out=None, target="c64"):
     """Compile/link C/C++ with Oscar64 (oscar64 -tm=<target> -O2) -> .prg. See docs/oscar64.md."""
     out = _out(src, out)
     return _run(["oscar64", f"-tm={target}", "-O2", *flags, f"-o={out.resolve()}", str(src)], "oscar64", out.resolve())
