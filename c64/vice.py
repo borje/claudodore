@@ -69,8 +69,9 @@ class C64:
         """Boot a fresh C64 to the READY prompt; if prg is given, load and (optionally) run it."""
         # xvfb-run is Linux-only; on macOS VICE opens a normal window.
         xvfb = ["xvfb-run", "-a", "-s", "-screen 0 800x600x24"] if shutil.which("xvfb-run") else []
+        # real audio unless headless (xvfb)
         cmd = xvfb + [
-            "x64sc", "-default", "+sound", "-sounddev", "dummy",
+            "x64sc", "-default", *(["+sound", "-sounddev", "dummy"] if xvfb else ["-sound"]),
             "+confirmonexit", "-binarymonitor",
             "-binarymonitoraddress", f"ip4://{HOST}:{self.port}",
         ]
@@ -140,7 +141,7 @@ class C64:
             for sig in (signal.SIGTERM, signal.SIGKILL):
                 try:
                     os.killpg(self.proc.pid, sig)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):  # macOS: EPERM once the group is gone
                     break
                 try:
                     self.proc.wait(timeout=3)
