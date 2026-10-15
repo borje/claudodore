@@ -32,3 +32,9 @@ Needs system tools: `acme`, `cc65` (`cl65`), `x64sc` (VICE; macOS: `brew install
 - `screenshot()` has VICE 3.7.1 workarounds (crop verified still correct on 3.10): Y offset is off by one (`yo -= 1`) and the pixel buffer comes back a few bytes short (zero-padded). Revisit if VICE is upgraded.
 - `stop()` kills the whole process group (xvfb-run, Xvfb, x64sc share it).
 - `hello.asm` uses ACME syntax: `!pet` for PETSCII text, anonymous `-`/`+` labels, BASIC stub `10 SYS 2064` at `$0801`, code at `$0810`.
+
+## Working on the framework
+
+- Every framework capability gets a `programs/<name>/` program plus a `run.py` that asserts it end to end (a tiny asm program that mirrors the register/byte under test into screen RAM works well). A monitor command returning OK does not mean it did anything: `joyport` was accepted for a plain joystick yet had no effect until the device type was switched.
+- VICE docs are not installed by brew. For monitor capabilities, read the upstream `vice/doc/vice.texi` (binary monitor chapter) and `vice/src/monitor/monitor_binary.c` from github.com/VICE-Team/svn-mirror; the command's C handler shows what it actually does.
+- Deliberately not built (judged over-scope vs. github.com/dexmac221/C64AIToolChain): VLM screenshot analysis (read `screenshot()` PNGs directly), the System 1/2 agent control loop, per-game shell launchers. Not yet built, add when a program needs them: asset pipeline (sprite sheets, image-to-sprite), cycle/frame-loss profiling, scheduled monitor commands during GIF recording.
