@@ -2,3 +2,5 @@
 __pycache__/
 hello.prg
 screen.png
+sprite.prg
+sprite*.png
