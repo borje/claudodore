@@ -1,4 +1,4 @@
-; Sprite demo: a yellow ball bouncing left/right on a cleared screen
+; Sprite demo: a yellow ball bouncing around the screen on a cleared screen
 SPRPTR = $07f8
 VIC    = $d000
 
@@ -26,20 +26,34 @@ frame:
         beq -
         lda x
         clc
-        adc dir
+        adc dx
         sta x
         sta VIC                 ; X (low 8 bits only, so range stays < 256)
         cmp #24
-        beq flip
+        beq flipx
         cmp #250
-        bne frame
-flip:   lda dir
+        bne movey
+flipx:  lda dx
         eor #$fe                ; +1 <-> -1
-        sta dir
+        sta dx
+movey:  lda y
+        clc
+        adc dy
+        sta y
+        sta VIC+1
+        cmp #50
+        beq flipy
+        cmp #208                ; 229 (last visible line) - 21 (sprite height) + 1
+        bne frame
+flipy:  lda dy
+        eor #$fe
+        sta dy
         jmp frame
 
 x:      !byte 24
-dir:    !byte 1
+y:      !byte 100
+dx:     !byte 1
+dy:     !byte 1
 
 * = $2000
         !byte %00000000,%00000000,%00000000

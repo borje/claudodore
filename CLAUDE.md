@@ -13,7 +13,7 @@ Needs system tools: `acme`, `x64sc` (VICE; macOS: `brew install acme vice`, test
 - Full chain test: `uv run test_loop.py` (assembles `hello.asm`, boots, types `q`, writes `screen.png`; exits 1 on timeout)
 - Assemble only: `acme -f cbm -o hello.prg hello.asm`
 - VICE stdout/stderr go to `/tmp/vice_<port>.log`. Port is picked free per instance.
-- Sprite demo: `uv run sprite_demo.py` (assembles `sprite.asm`, asserts sprite 0 X moves, writes `sprite1.png`/`sprite2.png`)
+- Sprite demo: `uv run sprite_demo.py` (assembles `sprite.asm`, asserts sprite 0 moves in X and Y, writes `sprite1.png`/`sprite2.png`)
 - No linter, no pytest suite; `test_loop.py` is a script.
 
 ## Architecture / gotchas
