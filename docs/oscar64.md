@@ -10,3 +10,4 @@ Alternative to cc65 (`compile_c`): faster generated code, C++ support. Added as 
 - Default C64 output has a BASIC stub at $0801, so `C64.start()` injection works.
 - Run: `uv run programs/c64/hello_oscar/run.py`.
 - Docs: `oscar64.md` in the repo above (67KB reference).
+- VIC-20: targets `vic20`, `vic20+3|8|16|24`; must match `VIC20(mem=...)`. Verified 8K and 16K in `programs/vic20/hello_oscar/` (`uv run programs/vic20/hello_oscar/run.py`). Unexpanded not tried.
