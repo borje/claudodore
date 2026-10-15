@@ -1,0 +1,10 @@
+[project]
+name = "c64"
+version = "0.1.0"
+description = "Headless VICE feedback loop for C64 development"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pillow"]
+
+[tool.uv]
+package = false
