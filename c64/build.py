@@ -1,4 +1,4 @@
-"""Build 6502 programs: ACME (.asm) and cc65 (C / .s) -> .prg."""
+"""Build programs: ACME (.asm), cc65 (C / .s) and petcat (text BASIC) -> .prg."""
 import subprocess
 from pathlib import Path
 
@@ -27,3 +27,9 @@ def compile_c(*srcs, out=None, cfg=None):
     out = Path(out) if out else BUILD / (Path(srcs[0]).stem + ".prg")
     cmd = ["cl65", "-t", "c64", "-O", "-o", str(out)] + (["-C", str(cfg)] if cfg else []) + [str(s) for s in srcs]
     return _run(cmd, "cl65", out.resolve())
+
+
+def basic(src, out=None):
+    """Tokenize text BASIC with petcat -> .prg (default: build/<name>.prg). Source must be lowercase."""
+    out = Path(out) if out else BUILD / (Path(src).stem + ".prg")
+    return _run(["petcat", "-w2", "-o", str(out), "--", str(src)], "petcat", out.resolve())

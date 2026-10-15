@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Feedback loop for C64 development: assemble with ACME -> boot headless VICE (`x64sc`, under `xvfb-run` if available, else a normal window) -> drive it through VICE's binary monitor (TCP) -> read screen RAM / screenshot. Layout:
-- `c64/` — framework package: `vice.py` (`C64` class), `build.py` (`assemble()` ACME, `compile_c()` cl65, `BUILD` dir), re-exported from `c64/__init__.py`.
-- `programs/<name>/` — one dir per program: `<name>.asm` + `run.py` (assemble, drive VICE, assert/screenshot). `hello` is the end-to-end check (also tests `reload`), `hello_c` the cc65 path, `sprite` the sprite demo (also `sprites()`, `record_gif`), `joy` the memory-byte input demo, `joyport` the real joystick-port demo.
+- `c64/` — framework package: `vice.py` (`C64` class), `build.py` (`assemble()` ACME, `compile_c()` cl65, `basic()` petcat, `BUILD` dir), re-exported from `c64/__init__.py`.
+- `programs/<name>/` — one dir per program: `<name>.asm` + `run.py` (assemble, drive VICE, assert/screenshot). `hello` is the end-to-end check (also tests `reload`), `hello_c` the cc65 path, `sprite` the sprite demo (also `sprites()`, `record_gif`), `joy` the memory-byte input demo, `joyport` the real joystick-port demo, `basic` text BASIC via `petcat` (lowercase source), loaded by inject and by monitor autostart (0xDD).
 - `build/` — gitignored output (`.prg`, `.png`).
 
 Needs system tools: `acme`, `cc65` (`cl65`), `x64sc` (VICE; macOS: `brew install acme cc65 vice`, tested on 3.10; Linux 3.7.1 also needs `xvfb-run`, used automatically when on PATH), plus Pillow for `screenshot()` (managed by uv; `c64` is installed editable via `uv sync`). Linux only: C64 ROMs must be in `~/.local/share/vice/C64/` (brew VICE bundles them).
@@ -14,7 +14,7 @@ Needs system tools: `acme`, `cc65` (`cl65`), `x64sc` (VICE; macOS: `brew install
 ## Commands
 
 - Full chain test: `uv run programs/hello/run.py` (assembles `hello.asm`, boots, types `q`, writes `build/hello.png`; exits 1 on timeout)
-- Run each program: `uv run programs/<name>/run.py` (`hello`, `hello_c`, `sprite`, `joy`, `joyport`)
+- Run each program: `uv run programs/<name>/run.py` (`hello`, `hello_c`, `sprite`, `joy`, `joyport`, `basic`)
 - Assemble only: `acme -f cbm -o build/hello.prg programs/hello/hello.asm`
 - VICE stdout/stderr go to `/tmp/vice_<port>.log`. Port is picked free per instance.
 - Sprite demo: `uv run programs/sprite/run.py` (asserts sprite 0 moves in X and Y, writes `build/sprite{1,2}.png`)
