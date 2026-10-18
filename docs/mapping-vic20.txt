@@ -6,6 +6,7 @@ OCR errors fixed here (VlC->VIC, l/O->I/O, LlST->LIST, Tl->TI, startinq, "*003C"
 ranges of 8400-8BFF and A000-BFFF, page-wrapped 00A8 line, key-code table re-laid out). Garbled 6522
 timer labels at $9114-$9117 / $9124-$9129 were set to the 6522 datasheet meaning (R4/R5 = T1 counter,
 R6/R7 = T1 latch). Still unknown in the source: $0310-$0313, $0334-$033B ("??").
+Cross-checked against https://vic20reloaded.com/commodore-vic-20-memory-map/ (same source, more errors).
 * = useful location.
 
       Memory Map
@@ -202,7 +203,8 @@ R6/R7 = T1 latch). Still unknown in the source: $0310-$0313, $0334-$033B ("??").
  0334-033B  820-827      ??
 *033C-03FB  828-1019     Cassette buffer
  0400-0FFF  1024-4095    3K expansion RAM area
- 1000-1DFF  4096-7679    User Basic area
+      (3K VIC: user BASIC starts at 0401)
+ 1000-1DFF  4096-7679    User Basic area (unexpanded; 3K: continues from 0400)
  1E00-1FFF  7680-8191    Screen memory
  2000-3FFF  8192-16383   8K expansion RAM/ROM block 1
  4000-5FFF  16384-24575  8K expansion RAM/ROM block 2
@@ -332,12 +334,14 @@ R6/R7 = T1 latch). Still unknown in the source: $0310-$0313, $0334-$033B ("??").
  912D       37165        Interrupt flag register
  912E       37166        Interrupt enable register
  912F       37167        Port A, no handshake (mirror of $9121)
+ 9130-93FF  37168-37887  No chip of its own (9130-913F hits both VIAs in VICE, see ADDED NOTES)
+ 9400-97FF  37888-38911  I/O BLOCK 1 (COLOR RAM)
  9400-95FF  37888-38399  location of COLOR RAM with
       additional RAM at blk 1
  9600-97FF  38400-38911  Normal location of COLOR RAM
  9800-9BFF  38912-39935  I/O block 2
  9C00-9FFF  39936-40959  I/O block 3
- A000-BFFF  40960-49151  8K decoded block for expansion ROM
+ A000-BFFF  40960-49151  8K decoded block for expansion ROM (BLK 5, cartridges)
  C000-DFFF  49152-57343  8K Basic ROM
  E000-FFFF  57344-65535  8K KERNAL ROM
       USEFUL MEMORY LOCATIONS
@@ -353,7 +357,7 @@ R6/R7 = T1 latch). Still unknown in the source: $0310-$0313, $0334-$033B ("??").
       To compute the start of BASIC in
       decimal, use the formula: PEEK(43) +
       256 * PEEK(44)
- 002D-002E  45-46        The start of the numeric variables,
+ 002D-002E  45-46        The start of the numeric variables (also string variables, see ADDED NOTES),
       which is usually immediately after the
       end of the BASIC program.
  002F-0030  47-48        The start of arrays in memory, usually
@@ -481,4 +485,17 @@ ADDED NOTES (not in the PRG; verified in this repo's retro/vic20.py and programs
 - Joystick (active low): VIA#1 $9111 bit2 up, bit3 down, bit4 left, bit5 fire; VIA#2 $9120 bit7 right
   (set VIA#2 DDRB $9122 bit7 to input first; the KERNAL keyboard scan toggles it, so SEI around the read).
 - The VIC-I registers are all 0 right after power-on, before the KERNAL initialises them.
-
+- Memory configs (VICE `-memory`): unexpanded and 3K keep the screen at $1E00 ($0288=30); 8K+ moves it to
+  $1000 ($0288=16), colour RAM to $9400. BASIC start ($2B): $1001 unexpanded, $0401 with 3K, $1201 with 8K+.
+- $002D-$002E points to all simple variables, not only numeric ones: after A=1:B$="XY" it holds
+  41 00 (A, float) then 42 80 (B$, string descriptor: len 2 + pointer).
+- 6522 timer 1 (both VIAs): R4/R5 ($9114/5, $9124/5) = counter, R6/R7 ($9116/7, $9126/7) = latch.
+  Latch written at R6/R7 reads back unchanged; R4/R5 keep counting. (Sources that label $9124/5 latch
+  and $9126/7 counter have it backwards.)
+- I/O block 0 holes, as VICE 3.10 emulates them: $9010-$90FF is not open bus (partial VIC-I mirror);
+  $9130-$913F selects both VIAs at once (reads show VIA timer contents); $9200-$93FF reads $FF.
+  Don't rely on any of it.
+- KERNAL reset: SYS64802 ($FD22, the $FFFC reset vector) = full cold start incl. RAM test.
+  SYS64824 ($FD38) skips the RAM test (JSR $E518 init screen, then BASIC cold start), so it keeps
+  $0281-$0284: POKE642,32:SYS64824 on an 8K VIC moves BASIC start to $2001 (8191 BYTES FREE).
+- Reading the screen page in BASIC: PEEK(648) = 30 -> $1E00, 16 -> $1000.
