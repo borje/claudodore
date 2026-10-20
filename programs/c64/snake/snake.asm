@@ -75,7 +75,6 @@ newrow = $c364          ; board row being entered/highlighted, $ff = none
 pos    = $c365          ; initials typed so far
 entry  = $c366          ; board: 1 = typing initials
 armed  = $c367          ; board: fire seen released
-prevk  = $c368          ; getkey: key held last frame
 ri     = $c369          ; drawrows row
 rc     = $c36a          ; drawlevel rect: col, row, width, height
 rr     = $c36b
@@ -84,6 +83,8 @@ rh     = $c36d
 level  = $c36e          ; solo: obstacle layout, +1 every LEVAPPLES apples
 lapples = $c36f
 lvlup  = $c370
+kmp    = $c380          ; getkey: keyboard matrix at the last call, 8 bytes
+knw    = $c388          ; getkey: keys newly down per column, 8 bytes
 lives  = wins           ; solo: lives left (pips), 3 at the start
 LEVAPPLES = 10
 NLEVELS = 8
@@ -815,43 +816,52 @@ rowlp:  asl
         jmp rowlp
 +       rts
 
-; one new key per call: A = screen code A-Z (1-26), $80 del, $81 return, 0 none/held
+; one newly pressed key per call: A = screen code A-Z (1-26), $80 del, $81 return, 0 none. Compares the whole
+; matrix with the last call's, so a key still held doesn't hide the next one.
 getkey: lda #$fe
         sta t2
         ldx #0
--       lda t2
+gk1:    lda t2
         sta $dc00
         jsr keyin
-        bne +
+        sta t1
+        lda kmp,x
+        eor #$ff
+        and t1
+        sta knw,x
+        lda t1
+        sta kmp,x
         sec
         rol t2
-        txa
-        clc
-        adc #8
-        tax
-        cpx #64
-        bne -
+        inx
+        cpx #8
+        bne gk1
+        lda #$ff
+        sta $dc00
+        ldx #0
+gk2:    lda knw,x
+        bne gk3
+        inx
+        cpx #8
+        bne gk2
         lda #0
-        beq ++
-+       ldy #0
+        beq gk5
+gk3:    ldy #0
 -       lsr
         bcs +
         iny
         bne -
-+       tya
++       txa
+        asl
+        asl
+        asl
         sta t1
-        txa
+        tya
         clc
         adc t1
         tax
         lda ktab,x
-++      ldx #$ff
-        stx $dc00
-        cmp prevk
-        sta prevk
-        bne +
-        lda #0
-+       ora #0                  ; flags for the caller
+gk5:    ora #0                  ; flags for the caller
         rts
 
 ; ---------------------------------------------------------------- input
