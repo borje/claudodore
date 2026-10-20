@@ -58,6 +58,12 @@ fcol   = $c138          ; row flash colour
 fcnt   = $c139
 sfr    = $c13a          ; starfield frame counter
 mt2    = $c13b
+HS_SC  = $c200          ; top 5 scores, 3 bytes BCD big-endian each (RAM only)
+HS_NM  = $c20f          ; 5 x 3 screen codes
+hnew   = $c21e          ; board row being entered, pos = letters typed
+hpos   = $c21f
+hent   = $c220          ; 1 = typing initials
+harm   = $c221          ; fire seen released
 CH_BLKL   = 64          ; custom tiles: block L/R, ghost L/R, wall, single block, blank L/R
 CH_GHL    = 66
 CH_WALL   = 68
@@ -196,21 +202,30 @@ J_FIRE = $10
 -       sta $c100,x
         dex
         bpl -
+        ldx #14                 ; empty high-score table
+-       lda #0
+        sta HS_SC,x
+        lda #$2d
+        sta HS_NM,x
+        dex
+        bpl -
         jsr initstars
         lda JIFFY
         ora #1
         sta rnd
         jsr intro
-        lda #$93                ; clear for the game
+setup:  lda #$93                ; clear for the game
         jsr CHROUT
         jsr walls
         +puts SCR+4*40+2, t_score, 5
         +puts SCR+8*40+2, t_lines, 5
         +puts SCR+12*40+2, t_level, 5
+        +puts SCR+16*40+2, t_hi, 5
         +puts SCR+4*40+34, t_next, 4
         +fill COL+4*40+2, 3, 5
         +fill COL+8*40+2, 3, 5
         +fill COL+12*40+2, 3, 5
+        +fill COL+16*40+2, 3, 5
         +fill COL+4*40+34, 3, 4
         lda JIFFY
         ora #1
@@ -258,8 +273,12 @@ loop:
         +sound 45, 4, 5, $41
 +       lda joy
         sta prev
-        jsr GETIN               ; G toggles the ghost, M the music
-        cmp #$47
+        jsr GETIN               ; G toggles the ghost, M the music, P pauses
+        cmp #$50
+        bne +
+        jsr pause
+        lda #0
++       cmp #$47
         bne +
         lda ghost
         eor #1
@@ -361,7 +380,12 @@ nosd:   jmp nograv
         jsr readjoy
         and #J_FIRE
         beq -
-        jmp newgame
+        jsr insert
+        bcc ngame
+        lda #1
+        jsr board
+        jmp setup
+ngame:  jmp newgame
 +       jsr showstats
 nograv:
         lda dirty
@@ -425,8 +449,13 @@ irain:  jsr bars
         and #J_FIRE
         bne istart
         jsr GETIN
+        beq +
+        cmp #$48                ; H = high scores
         bne istart
-        jmp iloop
+        lda #0
+        jsr board
+        jmp intro
++       jmp iloop
 istart: +sound 50, 10, 5, $41
         rts
 
@@ -1168,6 +1197,238 @@ bcd:    pha
         ora #$30
         rts
 
+; P: hide the well, silence the music, wait for P again
+pause:  lda mon
+        pha
+        jsr musicstop
+        +puts SCR+10*40+18, t_pause, 6
+        +fill COL+10*40+18, 1, 6
+-       lda $d012               ; plain frame sync, no sound tick
+        cmp #251
+        bne -
+-       jsr GETIN
+        cmp #$50
+        bne -
+        jsr draw
+        pla
+        beq +
+        jsr musicstart
++       rts
+
+; insert `score` into the top 5 (ties below older entries, 0 never): carry set if it made it, hnew = its row
+insert: lda score
+        ora score+1
+        ora score+2
+        beq insno
+        ldx #0
+        ldy #0
+insl:   lda score+2
+        cmp HS_SC,x
+        bcc insnx
+        bne insfound
+        lda score+1
+        cmp HS_SC+1,x
+        bcc insnx
+        bne insfound
+        lda score
+        cmp HS_SC+2,x
+        beq insnx
+        bcs insfound
+insnx:  inx
+        inx
+        inx
+        iny
+        cpy #5
+        bne insl
+insno:  clc
+        rts
+insfound:
+        sty hnew
+        tya
+        asl
+        sta t1
+        tya
+        clc
+        adc t1
+        sta t1                  ; 3 * row
+        ldx #11                 ; shift lower rows down
+-       cpx t1
+        bcc +
+        lda HS_SC,x
+        sta HS_SC+3,x
+        lda HS_NM,x
+        sta HS_NM+3,x
+        dex
+        bpl -
++       ldx t1
+        lda score+2
+        sta HS_SC,x
+        lda score+1
+        sta HS_SC+1,x
+        lda score
+        sta HS_SC+2,x
+        lda #$2d
+        sta HS_NM,x
+        sta HS_NM+1,x
+        sta HS_NM+2,x
+        lda #0
+        sta hpos
+        sec
+        rts
+
+; high-score screen; A = 1: type initials into row hnew first. Fire returns.
+board:  sta hent
+        lda #0
+        sta harm
+        lda #$93
+        jsr CHROUT
+        +puts SCR+4*40+14, t_hs, 11
+        +fill COL+4*40+14, 7, 11
+bloop:  jsr waitframe
+        jsr hsrows
+        lda hent
+        beq bwait
+        +puts SCR+20*40+13, t_ent, 13
+        +fill COL+20*40+13, 3, 13
+        jsr GETIN
+        bne +
+        jmp bloop
++       cmp #$14                ; DEL
+        bne +
+        lda hpos
+        beq bloop
+        dec hpos
+        jsr hsoff
+        lda #$2d
+        sta HS_NM,x
+        jmp bloop
++       cmp #$41                ; letters only
+        bcc bloop
+        cmp #$5b
+        bcs bloop
+        and #$3f
+        pha
+        jsr hsoff
+        pla
+        sta HS_NM,x
+        inc hpos
+        lda hpos
+        cmp #3
+        bne bloop
+        lda #0
+        sta hent
+        +fill COL+20*40+13, 0, 13
+        +puts SCR+20*40+13, t_blank, 13
+        jmp bloop
+bwait:  +puts SCR+20*40+15, t_fire, 10
+        +fill COL+20*40+15, 1, 10
+        jsr readjoy
+        and #J_FIRE
+        bne +
+        sta harm
+        inc harm
+        jmp bloop
++       lda harm
+        bne brel
+        jmp bloop
+brel:   jsr waitframe           ; wait for release so the caller doesn't see fire
+        jsr readjoy
+        and #J_FIRE
+        bne brel
+        rts
+
+; X = offset in HS_NM of the letter at hpos in row hnew
+hsoff:  lda hnew
+        asl
+        adc hnew
+        adc hpos
+        tax
+        rts
+
+; draw the 5 rows: "1. ABC 012345", the new entry in yellow
+hsrows: lda #0
+        sta row
+hr1:    ldx row
+        lda hsl,x
+        sta sptr
+        lda hsh,x
+        sta sptr+1
+        lda row
+        clc
+        adc #$31
+        ldy #0
+        sta (sptr),y
+        lda #$2e
+        iny
+        sta (sptr),y
+        lda row
+        asl
+        adc row
+        sta idx
+        tax
+        lda HS_NM,x
+        ldy #3
+        sta (sptr),y
+        lda HS_NM+1,x
+        iny
+        sta (sptr),y
+        lda HS_NM+2,x
+        iny
+        sta (sptr),y
+        lda sptr+1              ; colour pointer
+        clc
+        adc #$d4
+        sta cptr+1
+        lda sptr
+        sta cptr
+        lda #1
+        ldx hent
+        beq +
+        ldx row
+        cpx hnew
+        bne +
+        lda #7
++       ldy #13
+-       sta (cptr),y
+        dey
+        bpl -
+        ldx idx
+        lda HS_SC,x
+        jsr bcd
+        ldy #7
+        pha
+        txa
+        sta (sptr),y
+        pla
+        iny
+        sta (sptr),y
+        ldx idx
+        lda HS_SC+1,x
+        jsr bcd
+        ldy #9
+        pha
+        txa
+        sta (sptr),y
+        pla
+        iny
+        sta (sptr),y
+        ldx idx
+        lda HS_SC+2,x
+        jsr bcd
+        ldy #11
+        pha
+        txa
+        sta (sptr),y
+        pla
+        iny
+        sta (sptr),y
+        inc row
+        lda row
+        cmp #5
+        beq +
+        jmp hr1
++       rts
+
 showstats:
         lda score+2
         jsr bcd
@@ -1196,6 +1457,19 @@ showstats:
         tax
         lda lvcol,x
         sta $d020
+        lda HS_SC
+        jsr bcd
+        stx SCR+17*40+2
+        sta SCR+17*40+3
+        lda HS_SC+1
+        jsr bcd
+        stx SCR+17*40+4
+        sta SCR+17*40+5
+        lda HS_SC+2
+        jsr bcd
+        stx SCR+17*40+6
+        sta SCR+17*40+7
+        +fill COL+17*40+2, 1, 6
         +fill COL+5*40+2, 1, 6
         +fill COL+9*40+2, 1, 4
         +fill COL+13*40+2, 1, 1
@@ -1306,6 +1580,13 @@ t_level: !scr "level"
 t_next:  !scr "next"
 t_over:  !scr "game over"
 t_fire:  !scr "press fire"
+t_hi:    !scr "hi   "
+t_blank: !scr "             "
+t_hs:    !scr "high scores"
+t_pause: !scr "paused"
+t_ent:   !scr "type initials"
+hsl:     !for i, 0, 4 { !byte <(SCR+(7+2*i)*40+14) }
+hsh:     !for i, 0, 4 { !byte >(SCR+(7+2*i)*40+14) }
 
 ; Korobeiniki: (note, frames); 0 = rest, $ff = loop. Bass: root/fifth per bar, 4 steps of 20 frames.
 mel:    !byte N_E5,20, N_B4,10, N_C5,10, N_D5,20, N_C5,10, N_B4,10

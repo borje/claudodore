@@ -19,6 +19,12 @@ with C64() as c:
     assert c.peek(SCR + 120, 200).count(69) == 51, "title blocks"
     assert c.peek(MON)[0] == 1, "title music"
     c.screenshot(BUILD / "c64" / "tetris0.png")
+    c.type("h"); c.wait(0.3)  # H on the title: high-score board, fire returns to the title
+    t = c.screen_text()
+    assert "HIGH SCORES" in t and "1. ---" in t and "5. ---" in t, t
+    c.joyport("fire"); c.wait(0.3); c.joyport(); c.wait(0.3)
+    t = c.screen_text()
+    assert "PRESS FIRE" in t and "HIGH SCORES" not in t, t
     c.joyport("fire"); c.wait(0.3); c.joyport()
     c.wait(1)
     t = c.screen_text()
@@ -66,6 +72,14 @@ with C64() as c:
     c.wait(1.2)
     assert c.peek(PY)[0] > y0 or c.peek(PY)[0] == 0  # fell, or locked and respawned
 
+    # pause: P freezes the piece and hides the well, P again resumes
+    c.type("p"); c.wait(0.3)
+    assert "PAUSED" in c.screen_text()
+    y = c.peek(PY)[0]; c.wait(1)
+    assert c.peek(PY)[0] == y, "piece moved while paused"
+    c.type("p"); c.wait(0.3)
+    assert "PAUSED" not in c.screen_text()
+
     # soft drop: 1 point per row fallen while down is held
     c.joyport("down"); c.wait(0.5); c.joyport()
     assert c.peek(SCORE)[0] > 0, "soft drop gives no points"
@@ -103,7 +117,15 @@ with C64() as c:
     assert c.peek(MON)[0] == 0, "music should stop at game over"
     c.screenshot(BUILD / "c64" / "tetris3.png")
     c.joyport("fire"); c.wait(0.5); c.joyport()
-    assert "GAME OVER" not in c.screen_text()
+    t = c.screen_text()  # score 000040 made the board: type initials
+    assert "TYPE INITIALS" in t and "1. ---" in t, t
+    c.type("abc"); c.wait(0.5)
+    t = c.screen_text()
+    assert "1. ABC 000040" in t and "TYPE INITIALS" not in t, t
+    c.screenshot(BUILD / "c64" / "tetris4.png")
+    c.joyport("fire"); c.wait(0.5); c.joyport(); c.wait(0.5)
+    t = c.screen_text()
+    assert "GAME OVER" not in t and "SCORE" in t and "HI " in t and c.peek(SCR + 17 * 40 + 2, 6) == b"000040", t
     assert c.peek(SCORE, 3) == bytes(3)
     assert c.peek(MON)[0] == 1, "music should restart"
     print("tetris ok")
