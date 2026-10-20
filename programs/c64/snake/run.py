@@ -45,7 +45,7 @@ with C64() as c:
         sys.exit()
     c.wait(1.5)
     t = c.screen_text()
-    assert "PRESS FIRE" in t and "F1 MUSIC ON/OFF" in t and "PORT 2 / W A S Z" in t and "PORT 1 / I J K M" in t, t
+    assert "PRESS FIRE" in t and "F1 MUSIC ON/OFF" in t and "PORT 2 / W A S D" in t and "PORT 1 / I J K L" in t, t
     assert c.peek(0xD018)[0] & 0x0E == 0x0C, "charset at $3000"
     assert count(c, [BLK]) == 67, count(c, [BLK])  # SNAKE logo
     c.screenshot(OUT / "snake0.png")

@@ -1,4 +1,4 @@
-; C64 two-player Snake. P1: joystick port 2 or W/A/S/Z (up/left/right/down), P2: joystick port 1
+; C64 two-player Snake. P1: joystick port 2 or W/A/S/D, P2: joystick port 1
 ; or I/J/K/M. Any mix of 0, 1 or 2 joysticks works with no setup. First to 5 round wins takes the match.
 ; Title: left/right picks solo (high score), vs computer, or 2 players. In 1-player modes P1 takes any
 ; controller; vs computer the computer steers P2.
@@ -550,7 +550,7 @@ mshow:  lda players
         rts
 
 ; ---------------------------------------------------------------- input
-; joy = port 2 joystick | W/A/S/Z keys, joy+1 = port 1 joystick | I/J/K/M keys, fire = any fire or space
+; joy = port 2 joystick | W/A/S/D keys, joy+1 = port 1 joystick | I/J/K/L keys, fire = any fire or space
 readin: lda #$ff
         sta $dc00
         lda $dc01               ; no column selected: port 1 joystick only
@@ -562,14 +562,24 @@ readin: lda #$ff
         eor #$ff
         and #$1f
         sta joy
-        lda #%11111101          ; column 1: W A Z S
+        lda #%11111101          ; column 1: W A S
         sta $dc00
         jsr keyrow
         ora joy
         sta joy
-        lda #%11101111          ; column 4: I J M K (same rows as W A Z S)
+        lda #%11111011          ; column 2: D
+        sta $dc00
+        jsr keyrowr
+        ora joy
+        sta joy
+        lda #%11101111          ; column 4: I J K (same rows as W A S)
         sta $dc00
         jsr keyrow
+        ora joy+1
+        sta joy+1
+        lda #%11011111          ; column 5: L (same row as D)
+        sta $dc00
+        jsr keyrowr
         ora joy+1
         sta joy+1
         lda #%01111111          ; column 7: space on row 4
@@ -584,15 +594,18 @@ readin: lda #$ff
         sta $dc00
         rts
 
-; selected column's rows -> joystick bits (row 1 up, 2 left, 4 down, 5 right); rows port 1 is
+; selected column's rows -> joystick bits (row 1 up, 2 left, 5 down); rows port 1 is
 ; pulling low are dropped. ponytail: a port-2 joystick held while scanning also selects
 ; its columns, so P1 fire + P2 keys can ghost; fire is unused in play, so left as is.
-keyrow: lda t3
+keyin:  lda t3
         eor #$ff
         sta t1
         lda $dc01
         eor #$ff
         and t1
+        rts
+
+keyrow: jsr keyin
         sta t1
         lda #0
         lsr t1
@@ -604,11 +617,16 @@ keyrow: lda t3
         ora #4
 +       lsr t1
         lsr t1
+        lsr t1
         bcc +
         ora #2
-+       lsr t1
-        bcc +
-        ora #8
++       rts
+
+; column of D / L: row 2 -> right
+keyrowr: jsr keyin
+        and #4
+        beq +
+        lda #8
 +       rts
 
 ; pick a pressed direction perpendicular to the last move (no reversing)
@@ -1557,8 +1575,8 @@ t_2p:   !scr "<    2 players    >", 0
 t_winc: !scr "   computer wins round!   ", 0
 t_matchc: !scr " computer wins the match! ", 0
 t_title: !scr "s n a k e", 0
-t_ctl1: !scr "player 1  port 2 / w a s z", 0
-t_ctl2: !scr "player 2  port 1 / i j k m", 0
+t_ctl1: !scr "player 1  port 2 / w a s d", 0
+t_ctl2: !scr "player 2  port 1 / i j k l", 0
 t_rule: !scr "first to five round wins", 0
 t_start: !scr "press fire or space", 0
 t_f1:   !scr "f1 music on/off", 0
