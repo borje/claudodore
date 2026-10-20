@@ -85,7 +85,8 @@ level  = $c36e          ; solo: obstacle layout, +1 every LEVAPPLES apples
 lapples = $c36f
 lvlup  = $c370
 lives  = wins           ; solo: lives left (pips), 3 at the start
-LEVAPPLES = 15
+LEVAPPLES = 10
+NLEVELS = 8
 ; tiles
 CH_HEAD  = 64           ; +dir
 CH_TAIL  = 68           ; +dir towards the next segment
@@ -345,6 +346,7 @@ round:  ldx #0
         sta COL+12*40+15,x
         dex
         bpl -
+        jsr drawlevel           ; the ready text's floor patch may have erased obstacles
         lda #0
         sta aslot
         jsr spawn
@@ -445,7 +447,7 @@ levelup:
         sta lapples
         sta glide
         lda level
-        cmp #8
+        cmp #250
         bcs +
         inc level
 +       +text 7, 12, 1, t_lvl
@@ -1188,12 +1190,16 @@ paint:  lda t2
         jmp -
 +       rts
 
-; solo level layouts (level & 3; 0 = open): rects col, row, w, h, $ff ends
+; solo level layouts (level mod NLEVELS; 0 = open): rects col, row, w, h, $ff ends
 drawlevel:
         lda players
         bne dlend
         lda level
-        and #3
+-       cmp #NLEVELS
+        bcc +
+        sbc #NLEVELS            ; carry set
+        bne -
++       cmp #0
         beq dlend
         asl
         tax
@@ -1245,10 +1251,16 @@ dlrow:  ldy rr
         jmp dlrect
 dlend:  rts
 
-lvltab: !word lv1, lv2, lv3
+lvltab: !word lv0, lv1, lv2, lv3, lv4, lv5, lv6
+lv0:    !byte 20, 4, 1, 18, $ff                                 ; bar
 lv1:    !byte 12, 6, 16, 1, 12, 18, 16, 1, $ff
 lv2:    !byte 9, 5, 2, 2, 29, 5, 2, 2, 9, 18, 2, 2, 29, 18, 2, 2, $ff
-lv3:    !byte 19, 3, 2, 7, 19, 15, 2, 8, 6, 12, 7, 1, 27, 12, 7, 1, $ff
+lv3:    !byte 20, 3, 1, 7, 20, 15, 1, 8, 7, 12, 7, 1, 27, 12, 7, 1, $ff
+lv4:    !byte 20, 5, 1, 16, 11, 12, 19, 1, $ff                  ; plus
+lv5:    !for r, 4, 21 { !byte 32-r, r, 2, 1 }                   ; slash
+        !byte $ff
+lv6:    !for r, 4, 21 { !byte 32-r, r, 2, 1, r+7, r, 2, 1 }     ; X
+        !byte $ff
 
 ; apple on a random free cell (cols 1-38, rows 2-23); voice 3 noise is the RNG
 spawn:
@@ -1964,7 +1976,7 @@ t_p2:   !scr "p2", 0
 t_hi:   !scr "hi", 0
 t_m0:   !scr "<      solo       >", 0
 t_m1:   !scr "<   vs computer   >", 0
-t_rule0: !scr "3 lives. level up at 15 ", 0
+t_rule0: !scr "3 lives. level up at 10 ", 0
 t_life: !scr "        life lost!        ", 0
 t_lvl:  !scr "       next level!        ", 0
 t_over: !scr "        game over!        ", 0

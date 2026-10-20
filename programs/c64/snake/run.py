@@ -174,15 +174,21 @@ with C64() as c:
     assert "LIFE LOST" in c.screen_text() and c.peek(WINS)[0] == 2
     start_round(c, 2)
     assert c.peek(SCORE)[0] == 1 and c.peek(LEVEL)[0] == 0 and count(c, [BLK]) == 0
-    # 15th apple -> next level with obstacles, solo score kept
-    c.poke(LAPPLES, bytes([14]))
+    # 10th apple -> next level with obstacles, solo score kept
+    c.poke(LAPPLES, bytes([9]))
     c.poke(head(c, 0) + 1, bytes([APPLE]))
     step(c); c.wait(0.3)
     assert "NEXT LEVEL" in c.screen_text()
     c.wait(3.5)
     assert c.peek(LEVEL)[0] == 1 and c.peek(LAPPLES)[0] == 0 and c.peek(SCORE)[0] == 2 and c.peek(WINS)[0] == 2
-    assert count(c, [BLK]) == 32, count(c, [BLK])
+    assert count(c, [BLK]) == 18, count(c, [BLK])
     c.screenshot(OUT / "snake7.png")
+    # the other layouts (plus, slash, X) and the wrap back to the open level
+    for lv, n in ((2, 32), (5, 34), (6, 36), (7, 70), (8, 0)):
+        c.poke(LEVEL, bytes([lv])); c.poke(WINS, bytes([3]))
+        c.poke(head(c, 0) + 1, bytes([WALL])); step(c); c.wait(1.5)
+        start_round(c, 2)
+        assert count(c, [BLK]) == n, (lv, count(c, [BLK]))
     c.poke(WINS, bytes([1]))
     c.poke(head(c, 0) + 1, bytes([WALL]))
     step(c); c.wait(1.5)
