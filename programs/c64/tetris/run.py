@@ -66,6 +66,11 @@ with C64() as c:
     c.wait(1.2)
     assert c.peek(PY)[0] > y0 or c.peek(PY)[0] == 0  # fell, or locked and respawned
 
+    # soft drop: 1 point per row fallen while down is held
+    c.joyport("down"); c.wait(0.5); c.joyport()
+    assert c.peek(SCORE)[0] > 0, "soft drop gives no points"
+    c.poke(SCORE, bytes(3))
+
     # line clear: bottom row full except x=9; drop a vertical bar into the gap
     c.poke(BOARD, bytes(200))
     c.poke(BOARD + 190, bytes([1] * 9))

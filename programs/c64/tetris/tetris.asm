@@ -231,7 +231,7 @@ newgame:
         sta hcnt
         lda #$ff
         sta prev
-        lda #40
+        lda #48                 ; NES gravity table, level 0
         sta gint
         sta gcnt
         jsr random7
@@ -319,7 +319,25 @@ nohmove:
         inc py
         jsr fits
         bne +
-        jmp nograv
+        lda joy                 ; soft drop: 1 point per row fallen with down held
+        and #J_DN
+        beq nosd
+        sei
+        sed
+        clc
+        lda score
+        adc #1
+        sta score
+        lda score+1
+        adc #0
+        sta score+1
+        lda score+2
+        adc #0
+        sta score+2
+        cld
+        cli
+        jsr showstats
+nosd:   jmp nograv
 +       dec py
         jsr draw                ; make sure the final position is on screen
         jsr lock
@@ -905,12 +923,8 @@ lv1:    lda lines
         lsr
         lsr
 lv2:    sta lvl
-        asl
-        asl
-        sta t1
-        lda #40
-        sec
-        sbc t1
+        tax
+        lda gtab,x              ; NES frames per row
         sta gint
         lda #$41                ; rising sweep, longer for bigger clears
         sta swav
@@ -1251,6 +1265,7 @@ shapes: !byte 0,1, 1,1, 2,1, 3,1
         !byte 2,0, 0,1, 1,1, 2,1
 psize:  !byte 4,3,3,3,3,3,3
 pcols:  !byte 3,7,4,5,2,6,1
+gtab:   !byte 48,43,38,33,28,23,18,13,8,6
 ptslo:  !byte 0,$40,$00,$00,$00         ; 40 / 100 / 300 / 1200 (BCD)
 pthi:   !byte 0,$00,$01,$03,$12
 lvcol:  !byte 14,3,13,5,7,10,2,4,1,0        ; border colour per level
