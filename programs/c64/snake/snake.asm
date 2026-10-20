@@ -1,6 +1,6 @@
 ; C64 two-player Snake. P1: joystick port 2 or W/A/S/D, P2: joystick port 1
 ; or I/J/K/M. Any mix of 0, 1 or 2 joysticks works with no setup. First to 5 round wins takes the match.
-; Title: left/right picks solo (high score), vs computer, or 2 players. In 1-player modes P1 takes any
+; Title: H shows the top-5 board (solo game over: type initials). Left/right picks solo (high score), vs computer, or 2 players. In 1-player modes P1 takes any
 ; controller; vs computer the computer steers P2.
 ; Heads are sprites gliding between cells (the cell itself holds an invisible CH_HID); bodies are chars.
 ; SID: voice 1 melody, voice 2 bass, voice 3 sound effects; F1 toggles the music.
@@ -62,13 +62,21 @@ kk     = $c33d
 sy     = $c33e
 last   = $c33f          ; highest player index in play (0 solo, else 1)
 glide  = $c340          ; 1 = head sprites interpolate between cells
-hi     = $c341          ; solo high score, BCD
+hi     = $c341          ; HUD high score = hs_sc[0], BCD
 rnd    = $c342
 mi     = $c343          ; music step 0-63
 mcnt   = $c344          ; frames left in step
 spry   = $c345
 mon    = $c346          ; music on
 prevf1 = $c347
+hs_sc  = $c350          ; solo top 5 scores, BCD
+hs_nm  = $c355          ; 5 x 3 screen codes
+newrow = $c364          ; board row being entered/highlighted, $ff = none
+pos    = $c365          ; initials typed so far
+entry  = $c366          ; board: 1 = typing initials
+armed  = $c367          ; board: fire seen released
+prevk  = $c368          ; getkey: key held last frame
+ri     = $c369          ; drawrows row
 ; tiles
 CH_HEAD  = 64           ; +dir
 CH_TAIL  = 68           ; +dir towards the next segment
@@ -201,9 +209,22 @@ LOGO     = SCR+3*40+6
         sta players
         lda #0
         sta hi
+        ldx #4
+-       sta hs_sc,x
+        dex
+        bpl -
+        ldx #14
+        lda #$2d                ; '-'
+-       sta hs_nm,x
+        dex
+        bpl -
+        lda #$ff
+        sta newrow
 
 ; ---------------------------------------------------------------- title
-title:  lda #1
+title:  ldx #$ff                ; the board can be entered from deep in the title loop
+        txs
+        lda #1
         sta intitle
         lda #0
         sta $d015
@@ -258,7 +279,7 @@ title:  lda #1
         sta COL+10*40+19
         +text 8, 13, 13, t_ctl1
         +text 10, 21, 1, t_start
-        +text 13, 23, 11, t_f1
+        +text 8, 23, 11, t_f1
         lda #0
         sta wins
         sta wins+1
@@ -370,16 +391,17 @@ loop:   jsr vsync
         +text 7, 14, 1, t_fire
         lda players
         bne versus
-        lda score               ; solo: game over, maybe a new high score
-        cmp hi
-        beq +
-        bcc +
+        lda score               ; solo: top 5 board, initials if it made the cut
+        jsr insert
+        bcs +
+        +text 7, 12, 1, t_over
+        jsr waitfire
+        lda #0
+        beq ++
++       lda hs_sc
         sta hi
-        jsr hud
-        +text 7, 12, 7, t_newhi
-        jmp ++
-+       +text 7, 12, 1, t_over
-++      jsr waitfire
+        lda #1
+++      jsr board
         jmp title
 versus: lda dead
         and dead+1
@@ -532,7 +554,13 @@ menu:   lda joy
         bne mshow
         lda #0
         sta players
-mshow:  lda players
+mshow:  jsr getkey
+        cmp #8                  ; H
+        bne +
+        lda #0
+        jsr board
+        jmp title
++       lda players
         bne +
         +text 10, 19, 1, t_m0
         +text 8, 15, 3, t_blank
@@ -547,6 +575,228 @@ mshow:  lda players
 +       +text 10, 19, 1, t_2p
         +text 8, 15, 3, t_ctl2
         +text 7, 17, 15, t_rule
+        rts
+
+; ---------------------------------------------------------------- high scores
+; A = score: insert into the top 5 (ties below older entries, 0 never) -> carry set, newrow = its row
+insert: cmp #0
+        beq insno
+        ldx #0
+-       cmp hs_sc,x
+        beq +
+        bcs insfound
++       inx
+        cpx #5
+        bne -
+insno:  clc
+        rts
+insfound:
+        stx newrow
+        pha
+        ldx #4
+-       cpx newrow
+        beq +
+        lda hs_sc-1,x
+        sta hs_sc,x
+        txa
+        asl
+        sta t1
+        txa
+        adc t1                  ; 3 * x (asl cleared carry)
+        tay
+        lda hs_nm-3,y
+        sta hs_nm,y
+        lda hs_nm-2,y
+        sta hs_nm+1,y
+        lda hs_nm-1,y
+        sta hs_nm+2,y
+        dex
+        bne -
++       pla
+        ldx newrow
+        sta hs_sc,x
+        lda #0
+        sta pos
+        jsr noff
+        lda #$2d
+        sta hs_nm,x
+        sta hs_nm+1,x
+        sta hs_nm+2,x
+        sec
+        rts
+
+; X = offset in hs_nm of the letter at pos in row newrow
+noff:   lda newrow
+        asl
+        adc newrow
+        adc pos
+        tax
+        rts
+
+; the board; A = 1: type initials into row newrow first. Fire/space returns.
+board:  sta entry
+        lda #0
+        sta $d015
+        sta intitle
+        sta armed
+        jsr drawfield
+        +text 12, 5, 3, t_hs
+bloop:  jsr vsync
+        jsr fx
+        jsr readin
+        jsr drawrows
+        lda entry
+        bne bentry
+        +text 7, 20, 1, t_fire
+        lda fire
+        bne +
+        lda #1
+        sta armed
+        bne bloop
++       lda armed
+        beq bloop
+        lda #$ff
+        sta newrow
+        rts
+bentry: +text 7, 20, 3, t_ent
+        jsr getkey
+        beq bloop
+        bmi +
+        pha                     ; a letter
+        lda pos
+        cmp #3
+        bne ++
+        pla
+        jmp bloop
+++      jsr noff
+        pla
+        sta hs_nm,x
+        inc pos
+        jmp bloop
++       cmp #$81                ; return
+        beq +
+        lda pos                 ; del
+        beq bgo
+        dec pos
+        jsr noff
+        lda #$2d
+        sta hs_nm,x
+        jmp bloop
++       lda pos
+        beq bgo
+        jsr sfxeat
+        lda #0
+        sta entry
+bgo:    jmp bloop
+
+drawrows:
+        lda #0
+        sta ri
+rowlp:  asl
+        clc
+        adc #8
+        tay                     ; screen row 8, 10, ...
+        lda rowlo,y
+        clc
+        adc #14
+        sta p
+        sta q
+        lda rowhi,y
+        adc #0
+        sta p+1
+        adc #>(COL-SCR)
+        sta q+1
+        ldx ri
+        lda rankcol,x
+        sta t2
+        cpx newrow
+        bne +
+        lda frame               ; the new row blinks white
+        and #8
+        beq +
+        lda #1
+        sta t2
++       ldy #10
+-       lda #$20
+        sta (p),y
+        lda t2
+        sta (q),y
+        dey
+        bpl -
+        lda ri
+        clc
+        adc #$31                ; rank digit
+        ldy #0
+        sta (p),y
+        lda ri
+        asl
+        adc ri
+        tax
+        ldy #3
+-       lda hs_nm,x
+        sta (p),y
+        inx
+        iny
+        cpy #6
+        bne -
+        ldx ri
+        lda hs_sc,x
+        lsr
+        lsr
+        lsr
+        lsr
+        ora #$30
+        ldy #9
+        sta (p),y
+        lda hs_sc,x
+        and #15
+        ora #$30
+        iny
+        sta (p),y
+        inc ri
+        lda ri
+        cmp #5
+        beq +
+        jmp rowlp
++       rts
+
+; one new key per call: A = screen code A-Z (1-26), $80 del, $81 return, 0 none/held
+getkey: lda #$fe
+        sta t2
+        ldx #0
+-       lda t2
+        sta $dc00
+        jsr keyin
+        bne +
+        sec
+        rol t2
+        txa
+        clc
+        adc #8
+        tax
+        cpx #64
+        bne -
+        lda #0
+        beq ++
++       ldy #0
+-       lsr
+        bcs +
+        iny
+        bne -
++       tya
+        sta t1
+        txa
+        clc
+        adc t1
+        tax
+        lda ktab,x
+++      ldx #$ff
+        stx $dc00
+        cmp prevk
+        sta prevk
+        bne +
+        lda #0
++       ora #0                  ; flags for the caller
         rts
 
 ; ---------------------------------------------------------------- input
@@ -1539,6 +1789,16 @@ mel:    !byte N_A4,0,N_C5,0,N_E5,0,N_D5,N_C5, N_B4,0,N_A4,0,N_E4,0,0,0
         !byte N_F4,0,N_A4,0,N_C5,0,N_A4,N_C5, N_D5,0,N_C5,0,N_B4,0,N_G4,0
         !byte N_A4,0,N_C5,0,N_E5,0,N_A5,N_G5, N_E5,0,N_D5,0,N_C5,0,0,0
         !byte N_F5,0,N_E5,0,N_D5,0,N_C5,0,    N_B4,0,N_GS4,0,N_E4,0,0,0
+rankcol: !byte 7, 1, 13, 3, 14
+; keyboard matrix (column * 8 + row) -> A-Z screen codes, $80 del, $81 return
+ktab:   !byte $80, $81, 0, 0, 0, 0, 0, 0
+        !byte 0, 23, 1, 0, 26, 19, 5, 0
+        !byte 0, 18, 4, 0, 3, 6, 20, 24
+        !byte 0, 25, 7, 0, 2, 8, 21, 22
+        !byte 0, 9, 10, 0, 13, 11, 15, 14
+        !byte 0, 16, 12, 0, 0, 0, 0, 0
+        !byte 0, 0, 0, 0, 0, 0, 0, 0
+        !byte 0, 0, 0, 0, 0, 0, 17, 0
 dxt:    !byte 0, 1, 0, $ff
 dyt:    !byte $ff, 0, 1, 0
 turns:  !byte 0, 1, 3           ; straight, right, left
@@ -1568,7 +1828,8 @@ t_m0:   !scr "<      solo       >", 0
 t_m1:   !scr "<   vs computer   >", 0
 t_rule0: !scr "  beat the high score   ", 0
 t_over: !scr "        game over!        ", 0
-t_newhi: !scr "     new high score!      ", 0
+t_hs:   !scr "- high scores -", 0
+t_ent:  !scr "type initials, then return", 0
 t_cp:   !scr "cp", 0
 t_cpu:  !scr "player 2  computer        ", 0
 t_2p:   !scr "<    2 players    >", 0
@@ -1579,7 +1840,7 @@ t_ctl1: !scr "player 1  port 2 / w a s d", 0
 t_ctl2: !scr "player 2  port 1 / i j k l", 0
 t_rule: !scr "first to five round wins", 0
 t_start: !scr "press fire or space", 0
-t_f1:   !scr "f1 music on/off", 0
+t_f1:   !scr "f1 music on/off  h scores", 0
 t_ready: !scr "get ready!", 0
 t_blank: !scr "                          ", 0
 t_fire: !scr "        press fire        ", 0
