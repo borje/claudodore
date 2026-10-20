@@ -77,6 +77,15 @@ entry  = $c366          ; board: 1 = typing initials
 armed  = $c367          ; board: fire seen released
 prevk  = $c368          ; getkey: key held last frame
 ri     = $c369          ; drawrows row
+rc     = $c36a          ; drawlevel rect: col, row, width, height
+rr     = $c36b
+rw     = $c36c
+rh     = $c36d
+level  = $c36e          ; solo: obstacle layout, +1 every LEVAPPLES apples
+lapples = $c36f
+lvlup  = $c370
+lives  = wins           ; solo: lives left (pips), 3 at the start
+LEVAPPLES = 15
 ; tiles
 CH_HEAD  = 64           ; +dir
 CH_TAIL  = 68           ; +dir towards the next segment
@@ -286,6 +295,14 @@ title:  ldx #$ff                ; the board can be entered from deep in the titl
         jsr waitfire
         lda #0
         sta intitle
+        sta score               ; solo: score, level and lives run across rounds
+        sta level
+        sta lapples
+        sta lvlup
+        lda players
+        bne round
+        lda #3
+        sta lives
 
 ; ---------------------------------------------------------------- round
 round:  ldx #0
@@ -296,8 +313,15 @@ round:  ldx #0
         lda #0
         sta glide
         jsr drawfield
+        jsr drawlevel
+        lda score
+        pha
         jsr initsnakes
-        jsr hud
+        pla
+        ldx players
+        bne +
+        sta score               ; solo keeps its score between lives
++       jsr hud
         lda #13
         sta $d027
         lda #3
@@ -356,8 +380,12 @@ loop:   jsr vsync
         sta tick
         lda dead
         ora dead+1
-        beq loop
-        lda #0
+        bne crash
+        lda lvlup
+        beq +
+        jmp levelup
++       jmp loop
+crash:  lda #0
         sta glide
 
         ; round over: flash the crashed snake(s), then grey them out
@@ -390,7 +418,15 @@ loop:   jsr vsync
         +text 7, 13, 1, t_blank
         +text 7, 14, 1, t_fire
         lda players
-        bne versus
+        beq +
+        jmp versus
++       dec lives
+        beq gameover
+        jsr hud
+        +text 7, 12, 1, t_life
+        jsr waitfire
+        jmp round
+gameover:
         lda score               ; solo: top 5 board, initials if it made the cut
         jsr insert
         bcs +
@@ -403,6 +439,23 @@ loop:   jsr vsync
         lda #1
 ++      jsr board
         jmp title
+levelup:
+        lda #0
+        sta lvlup
+        sta lapples
+        sta glide
+        lda level
+        cmp #8
+        bcs +
+        inc level
++       +text 7, 12, 1, t_lvl
+        lda #70
+        sta cnt
+-       jsr vsync
+        jsr fx
+        dec cnt
+        bne -
+        jmp round
 versus: lda dead
         and dead+1
         beq +
@@ -1075,9 +1128,18 @@ advance:
         lda score,x
         clc
         adc #1
-        sta score,x
+        bcc +
+        lda #$99                ; ponytail: saturate, the board holds 2 digits
++       sta score,x
         cld
-        dec ecnt
+        lda players
+        bne lvdone
+        inc lapples
+        lda lapples
+        cmp #LEVAPPLES
+        bne lvdone
+        sta lvlup
+lvdone: dec ecnt
         bne +
         lda #5
         sta ecnt
@@ -1125,6 +1187,68 @@ paint:  lda t2
         inc t3
         jmp -
 +       rts
+
+; solo level layouts (level & 3; 0 = open): rects col, row, w, h, $ff ends
+drawlevel:
+        lda players
+        bne dlend
+        lda level
+        and #3
+        beq dlend
+        asl
+        tax
+        lda lvltab-2,x
+        sta s
+        lda lvltab-1,x
+        sta s+1
+dlrect: ldy #0
+        lda (s),y
+        cmp #$ff
+        beq dlend
+        sta rc
+        iny
+        lda (s),y
+        sta rr
+        iny
+        lda (s),y
+        sta rw
+        iny
+        lda (s),y
+        sta rh
+        lda s
+        clc
+        adc #4
+        sta s
+        bcc dlrow
+        inc s+1
+dlrow:  ldy rr
+        lda rowlo,y
+        clc
+        adc rc
+        sta p
+        lda rowhi,y
+        adc #0
+        sta p+1
+        lda #14
+        sta t2
+        ldx rw
+-       lda #CH_BLK
+        jsr putc
+        inc p
+        bne +
+        inc p+1
++       dex
+        bne -
+        inc rr
+        dec rh
+        bne dlrow
+        jmp dlrect
+dlend:  rts
+
+lvltab: !word lv1, lv2, lv3
+lv1:    !byte 12, 6, 16, 1, 12, 18, 16, 1, $ff
+lv2:    !byte 9, 5, 2, 2, 29, 5, 2, 2, 9, 18, 2, 2, 29, 18, 2, 2, $ff
+lv3:    !byte 19, 3, 2, 7, 19, 15, 2, 8, 6, 12, 7, 1, 27, 12, 7, 1, $ff
 
 ; apple on a random free cell (cols 1-38, rows 2-23); voice 3 noise is the RNG
 spawn:
@@ -1472,7 +1596,21 @@ hud:    +text 1, 0, 13, t_p1
         sta t2
         lda hi
         ldy #34
-        jmp bcd
+        jsr bcd
+        ldy #0                  ; lives as pips
+livp:   lda #CH_PIPE
+        ldx #11
+        cpy lives
+        bcs livq
+        lda #CH_PIP
+        ldx #13
+livq:   sta SCR+7,y
+        txa
+        sta COL+7,y
+        iny
+        cpy #3
+        bne livp
+        rts
 +       cmp #2
         beq +
         +text 37, 0, 3, t_cp
@@ -1826,7 +1964,9 @@ t_p2:   !scr "p2", 0
 t_hi:   !scr "hi", 0
 t_m0:   !scr "<      solo       >", 0
 t_m1:   !scr "<   vs computer   >", 0
-t_rule0: !scr "  beat the high score   ", 0
+t_rule0: !scr "3 lives. level up at 15 ", 0
+t_life: !scr "        life lost!        ", 0
+t_lvl:  !scr "       next level!        ", 0
 t_over: !scr "        game over!        ", 0
 t_hs:   !scr "- high scores -", 0
 t_ent:  !scr "type initials, then return", 0

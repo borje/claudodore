@@ -8,6 +8,7 @@ HD, DIR, ND, GROW, SCORE, WINS = 0xC300, 0xC304, 0xC306, 0xC308, 0xC310, 0xC312
 TICK, SPEED, PLAYERS, DEAD = 0xC321, 0xC322, 0xC32C, 0xC30A
 AX, AY, HX, HY, HI, MI, MON = 0xC330, 0xC332, 0xC334, 0xC336, 0xC341, 0xC343, 0xC346
 HS_SC, HS_NM, NEWROW, POS, ENTRY = 0xC350, 0xC355, 0xC364, 0xC365, 0xC366
+LEVEL, LAPPLES = 0xC36E, 0xC36F
 SCR = 0x400
 HID, CH_LD, CH_RU, APPLE, WALL, BLK = 89, 74, 77, 78, 80, 88
 OUT = BUILD / "c64"
@@ -159,53 +160,71 @@ with C64() as c:
     assert "<   VS COMPUTER   >" in c.screen_text(), c.screen_text()
     c.joyport("left"); c.wait(0.2); c.joyport(); c.wait(0.2)
     t = c.screen_text()
-    assert "<      SOLO       >" in t and "BEAT THE HIGH SCORE" in t and "COMPUTER" not in t, t
+    assert "<      SOLO       >" in t and "3 LIVES" in t and "COMPUTER" not in t, t
     start_round(c, 2)
     assert count(c, [HID]) == 1 and len(c.sprites()) == 1
     assert c.screen_text().splitlines()[0].endswith("00 HI"), c.screen_text().splitlines()[0]
     c.poke(head(c, 0) + 1, bytes([APPLE]))
     step(c)
     assert c.peek(SCORE)[0] == 1
+    assert c.peek(WINS)[0] == 3 and c.peek(LAPPLES)[0] == 1
+    # a crash costs a life, score and level carry on
+    c.poke(head(c, 0) + 1, bytes([WALL]))
+    step(c); c.wait(1.5)
+    assert "LIFE LOST" in c.screen_text() and c.peek(WINS)[0] == 2
+    start_round(c, 2)
+    assert c.peek(SCORE)[0] == 1 and c.peek(LEVEL)[0] == 0 and count(c, [BLK]) == 0
+    # 15th apple -> next level with obstacles, solo score kept
+    c.poke(LAPPLES, bytes([14]))
+    c.poke(head(c, 0) + 1, bytes([APPLE]))
+    step(c); c.wait(0.3)
+    assert "NEXT LEVEL" in c.screen_text()
+    c.wait(3.5)
+    assert c.peek(LEVEL)[0] == 1 and c.peek(LAPPLES)[0] == 0 and c.peek(SCORE)[0] == 2 and c.peek(WINS)[0] == 2
+    assert count(c, [BLK]) == 32, count(c, [BLK])
+    c.screenshot(OUT / "snake7.png")
+    c.poke(WINS, bytes([1]))
     c.poke(head(c, 0) + 1, bytes([WALL]))
     step(c); c.wait(1.5)
     # top-5 board: made the cut -> type initials (matrix keys can't be injected: poke them, then finish entry)
     t = c.screen_text()
     assert "HIGH SCORES" in t and "TYPE INITIALS" in t, t
-    assert c.peek(NEWROW)[0] == 0 and c.peek(HS_SC)[0] == 1 and c.peek(HI)[0] == 1
+    assert c.peek(NEWROW)[0] == 0 and c.peek(HS_SC)[0] == 2 and c.peek(HI)[0] == 2
     c.poke(HS_NM, bytes([1, 2, 3])); c.poke(POS, bytes([3])); c.poke(ENTRY, bytes([0])); c.wait(0.3)
     rows = c.screen_text().splitlines()
-    assert "1  ABC   01" in rows[8] and "2  ---   00" in rows[10] and "PRESS FIRE" in rows[20], rows
+    assert "1  ABC   02" in rows[8] and "2  ---   00" in rows[10] and "PRESS FIRE" in rows[20], rows
     c.screenshot(OUT / "snake6.png")
     fire(c, 2); c.wait(0.5)
     assert "<      SOLO       >" in c.screen_text()
 
     # score 0 never qualifies: plain game over, then the board unchanged
     start_round(c, 2)
+    c.poke(WINS, bytes([1]))
     c.poke(head(c, 0) + 1, bytes([WALL]))
     step(c); c.wait(1.5)
     assert "GAME OVER" in c.screen_text()
     fire(c, 2); c.wait(0.5)
     rows = c.screen_text().splitlines()
-    assert "HIGH SCORES" in "".join(rows) and "TYPE INITIALS" not in "".join(rows) and "1  ABC   01" in rows[8]
+    assert "HIGH SCORES" in "".join(rows) and "TYPE INITIALS" not in "".join(rows) and "1  ABC   02" in rows[8]
     assert c.peek(NEWROW)[0] == 0xFF
     fire(c, 2); c.wait(0.5)
     assert "<      SOLO       >" in c.screen_text()
 
     # a tie ranks below the older entry
     start_round(c, 2)
-    c.poke(SCORE, bytes([1]))
+    c.poke(WINS, bytes([1])); c.poke(SCORE, bytes([2]))
     c.poke(head(c, 0) + 1, bytes([WALL]))
     step(c); c.wait(1.5)
-    assert c.peek(NEWROW)[0] == 1 and c.peek(HS_SC, 2) == bytes([1, 1]), (c.peek(NEWROW), c.peek(HS_SC, 5))
+    assert c.peek(NEWROW)[0] == 1 and c.peek(HS_SC, 2) == bytes([2, 2]), (c.peek(NEWROW), c.peek(HS_SC, 5))
     assert c.peek(HS_NM, 6) == bytes([1, 2, 3, 0x2D, 0x2D, 0x2D])
     # a better score goes on top and pushes the rest down
     c.poke(ENTRY, bytes([0])); c.poke(HS_NM + 3, bytes([4, 5, 6]))
     fire(c, 2); c.wait(0.5)
     fire(c, 2); c.wait(0.5)
     start_round(c, 2)
-    c.poke(SCORE, bytes([0x12]))
+    c.poke(WINS, bytes([1])); c.poke(SCORE, bytes([0x12]))
     c.poke(head(c, 0) + 1, bytes([WALL]))
     step(c); c.wait(1.5)
-    assert c.peek(NEWROW)[0] == 0 and c.peek(HS_SC, 3) == bytes([0x12, 1, 1]) and c.peek(HI)[0] == 0x12
+    assert c.peek(NEWROW)[0] == 0 and c.peek(HS_SC, 3) == bytes([0x12, 2, 2]) and c.peek(HI)[0] == 0x12
     assert c.peek(HS_NM + 3, 6) == bytes([1, 2, 3, 4, 5, 6])
     print("snake ok")
