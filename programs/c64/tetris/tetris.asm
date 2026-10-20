@@ -1,43 +1,64 @@
-; C64 Tetris. Joystick port 2: left/right move, down soft-drop, fire/up rotate. G toggles ghost, M music.
-; Board 10x20 at BOARD (0 = empty, else colour 1-7). Each cell = 2 screen chars (multicolour bevelled tile:
-; D022 highlight, D023 shadow, colour RAM = body). Screen $0400, charset in RAM at $3000, colour RAM $D800.
+; C64 Tetris. Joystick port 2: left/right move, down soft-drop, fire/up rotate. G toggles ghost, M music, P pauses.
+; Title: left/right picks 1 or 2 players (a 2P round ends back at the title). 2 players (versus): P1 joystick port 2, P2 W/A/S/D or joystick port 1;
+; clearing 2/3/4 rows sends 1/2/4 garbage rows (one hole) to the other board at their next lock; first to top out loses.
+; Board 10x20 at BOARD (0 = empty, else colour 1-7). 1P: each cell = 2 screen chars (multicolour bevelled tile:
+; D022 highlight, D023 shadow, colour RAM = body). 2P: 1 char per cell, board 2 at BOARD2. Screen $0400, charset in
+; RAM at $3000, colour RAM $D800.
 ; SID: voice 1 pulse (PWM) melody, voice 2 triangle bass (Korobeiniki), voice 3 sound effects.
-CHROUT = $ffd2
-GETIN  = $ffe4
-JIFFY  = $a2
+; IRQs stay off: waitframe syncs on the raster and readin scans the keyboard matrix itself.
 SCR    = $0400
 COL    = $d800
 BOARD  = $c000
+BOARD2 = $c300
+SEQ    = $c400          ; shared piece sequence, 64-entry ring
 CHARS  = $3000
 PV     = SCR+6*40+32            ; next-piece preview, 4 rows x 8 cols
 FQ     = 17.0284                ; Hz -> SID freq (PAL clock)
+KINJ   = $033d          ; agent input: bits P 1, G 2, M 4, H 8 are ORed into the new key presses, cleared once read
+KCH    = $033f          ; agent input: a typed key as getkey returns it (screen code A-Z 1-26, $80 del), cleared once read
 ; zero page pointers
 sptr   = $fb
 cptr   = $fd
+cpp    = $f7
+; per-player state, CTX = the active player (P1 between frames; in 2P P2 is exchanged in for its step, see swapctx)
+CTX    = $c160
+px     = CTX
+py     = CTX+1
+pid    = CTX+2
+pcol   = CTX+3
+cells  = CTX+4          ; 4 x (x,y)
+hcnt   = CTX+12
+gcnt   = CTX+13
+gint   = CTX+14
+score  = CTX+15         ; 3 bytes BCD
+lines  = CTX+18         ; 2 bytes BCD
+lvl    = CTX+20
+prev   = CTX+21
+nxt    = CTX+22
+garb   = CTX+23         ; garbage rows waiting for this player's next lock
+ridx   = CTX+24         ; read index into SEQ
+pn     = CTX+25         ; player number 0/1
+c0     = CTX+26         ; screen column of board cell 0
+ly     = CTX+27         ; 2P: piece row and ghost row as last drawn
+lgy    = CTX+28
+dfull  = CTX+29         ; 2P: board changed, repaint every row
+gy     = CTX+30         ; 2P: ghost row (kept while only gravity moves the piece)
+gst    = CTX+31         ; 2P: piece moved sideways/rotated, ghost row stale
+hgt    = CTX+32         ; 2P: row of the top block per column (20 = empty), valid while ghost is on
+CTXN   = 42
+PC2    = $c1a0          ; P2 while P1 is active (and P1 while P2 is)
 ; variables
-px     = $c100
-py     = $c101
-pid    = $c102
-pcol   = $c103
-cells  = $c104          ; 4 x (x,y)
-scells = $c10c
+scells = $c100
 t1     = $c114
 t2     = $c115
 t3     = $c116
 row    = $c117
 idx    = $c118
 ci     = $c119
-hcnt   = $c11a
-gcnt   = $c11b
-gint   = $c11c
-score  = $c11d          ; 3 bytes BCD
-lines  = $c120          ; 2 bytes BCD
 nlines = $c122
 joy    = $c123
-prev   = $c124
 rnd    = $c125
 dirty  = $c126
-nxt    = $c127
 ncol   = $c128
 snd    = $c129          ; sfx: frames left, pitch (SID hi byte), per-frame delta, waveform|gate
 snote  = $c12a
@@ -46,7 +67,6 @@ swav   = $c12c
 pch    = $c12d
 cnt    = $c12e
 ghost  = $c12f          ; 1 = show landing outline
-lvl    = $c130
 mon    = $c131          ; music on
 mi     = $c132          ; melody index
 mcnt   = $c133          ; frames left in melody note
@@ -58,7 +78,25 @@ fcol   = $c138          ; row flash colour
 fcnt   = $c139
 sfr    = $c13a          ; starfield frame counter
 mt2    = $c13b
-HS_SC  = $c200          ; top 5 scores, 3 bytes BCD big-endian each (RAM only)
+cur    = $c13c          ; player being stepped / the loser
+players = $c13d         ; 1 or 2
+cw     = $c13e          ; screen chars per board cell (2 in 1P, 1 in 2P)
+tblk   = $c13f          ; tile codes: block, ghost
+tgh    = $c140
+wptr   = $c141          ; pieces generated into SEQ so far
+redraw = $c142          ; G toggled: every board redraws
+idle   = $c143          ; 1 while waitframe spins (agents poke/peek P2's state only then)
+hk     = $c144          ; hotkeys held: P 1, G 2, M 4, H 8
+hkp    = $c145
+hkn    = $c146          ; newly pressed
+fire   = $c147          ; any fire button or space
+rmask  = $c148
+jin    = $c149          ; 2 bytes: P1 = joystick port 2, P2 = W/A/S/D or joystick port 1
+km     = $c14b          ; 8 bytes: keyboard matrix, one byte per column, bit set = key down
+kmp    = $c158          ; 8 bytes: km at the last getkey
+blo    = $c154          ; 2P: board rows to repaint
+bhi    = $c155
+HS_SC  = $c200         ; top 5 scores, 3 bytes BCD big-endian each (RAM only)
 HS_NM  = $c20f          ; 5 x 3 screen codes
 hnew   = $c21e          ; board row being entered, pos = letters typed
 hpos   = $c21f
@@ -70,6 +108,8 @@ CH_WALL   = 68
 CH_BLK1   = 69
 CH_BLANKL = 70
 CH_WELL   = 72          ; solid black cell for the well
+CH_GH1    = 74          ; 1-char ghost (2P)
+CH_GARB   = 75          ; 2P garbage cell (board value 8): greys only, so it can't be mistaken for a piece
 N_A4 = 1
 N_B4 = 2
 N_C5 = 3
@@ -140,10 +180,8 @@ J_FIRE = $10
         !byte $0c,$08,$0a,$00,$9e,$32,$30,$36,$34,$00,$00,$00   ; 10 SYS 2064
 
 * = $0810
-        lda #5                  ; white text
-        jsr CHROUT
-        lda #$93                ; clear (screen + colour RAM)
-        jsr CHROUT
+        sei                     ; IRQs stay off for good
+        jsr cls
         lda #14
         sta $d020
         lda #6
@@ -153,7 +191,6 @@ J_FIRE = $10
         lda #11
         sta $d023
         ; charset in RAM: copy of the ROM's first 64 chars + our tiles
-        sei
         lda #$33                ; char ROM visible at $D000
         sta 1
         ldx #0
@@ -165,8 +202,7 @@ J_FIRE = $10
         bne -
         lda #$37
         sta 1
-        cli
-        ldx #10*8-1
+        ldx #12*8-1
 -       lda tiles,x
         sta CHARS+CH_BLKL*8,x
         dex
@@ -197,11 +233,14 @@ J_FIRE = $10
         sta $d414
         lda #$0f
         sta $d418
-        ldx #$3f                ; clear variables
-        lda #0
+        ldx #0                  ; clear variables ($c100-$c1ff)
+        txa
 -       sta $c100,x
-        dex
-        bpl -
+        inx
+        bne -
+        lda #1
+        sta players
+        jsr setmode
         ldx #14                 ; empty high-score table
 -       lda #0
         sta HS_SC,x
@@ -210,12 +249,16 @@ J_FIRE = $10
         dex
         bpl -
         jsr initstars
-        lda JIFFY
+        lda $d012
         ora #1
         sta rnd
+restart: jsr cls
         jsr intro
-setup:  lda #$93                ; clear for the game
-        jsr CHROUT
+        lda players
+        cmp #2
+        bne setup
+        jmp setup2
+setup:  jsr cls                 ; clear for the game
         jsr walls
         +puts SCR+4*40+2, t_score, 5
         +puts SCR+8*40+2, t_lines, 5
@@ -227,40 +270,70 @@ setup:  lda #$93                ; clear for the game
         +fill COL+12*40+2, 3, 5
         +fill COL+16*40+2, 3, 5
         +fill COL+4*40+34, 3, 4
-        lda JIFFY
+        lda sfr
         ora #1
         sta rnd
 newgame:
-        ldx #0
-        txa
--       sta BOARD,x
-        inx
-        cpx #200
-        bne -
-        sta score
-        sta score+1
-        sta score+2
-        sta lines
-        sta lines+1
-        sta lvl
-        sta hcnt
-        lda #$ff
-        sta prev
-        lda #48                 ; NES gravity table, level 0
-        sta gint
-        sta gcnt
-        jsr random7
-        sta nxt
-        jsr spawn
-        jsr draw
-        jsr showstats
-        jsr musicstart
+        jsr setmode
+        lda #0
+        sta wptr
+        sta redraw
+        jsr initplayer          ; P1 in CTX
+        lda players
+        cmp #2
+        bne +
+        jsr swapctx             ; P2 built in CTX, then exchanged out
+        lda #1
+        jsr initplayer
+        jsr swapctx
++       jsr musicstart
 
 loop:
         jsr waitframe
-        lda #0
+        jsr readin
+        jsr hotkeys
+        lsr hkn                 ; P pauses, G toggles the ghost, M the music
+        bcc +
+        jsr pause
++       lsr hkn
+        bcc +
+        lda ghost
+        eor #1
+        sta ghost
+        inc redraw
++       lsr hkn
+        bcc +
+        lda mon
+        beq ++
+        jsr musicstop
+        jmp +
+++      jsr musicstart
++       lda #0
+        sta cur
+        jsr step                ; P1
+        bcs lost
+        lda players
+        cmp #2
+        bne +
+        jsr swapctx
+        inc cur
+        jsr step                ; P2
+        php
+        jsr swapctx
+        plp
+        bcs lost
++       lda #0
+        sta redraw
+        jmp loop
+lost:   jmp gameover            ; cur = loser, CTX = P1 again
+
+; one tick of the player in CTX: input, move, gravity, lock. C set if they topped out.
+step:   lda redraw
         sta dirty
-        jsr readjoy
+        beq +
+        sta dfull
++        ldx pn
+        lda jin,x
         sta joy
         ; rotate on press edge of up/fire
         lda prev
@@ -270,28 +343,11 @@ loop:
         beq +
         jsr rotate
         inc dirty
+        inc gst
         +sound 45, 4, 5, $41
 +       lda joy
         sta prev
-        jsr GETIN               ; G toggles the ghost, M the music, P pauses
-        cmp #$50
-        bne +
-        jsr pause
-        lda #0
-+       cmp #$47
-        bne +
-        lda ghost
-        eor #1
-        sta ghost
-        inc dirty
-+       cmp #$4d
-        bne +
-        lda mon
-        beq ++
-        jsr musicstop
-        jmp +
-++      jsr musicstart
-+       ; left/right with auto-repeat
+        ; left/right with auto-repeat
         lda joy
         and #J_LF|J_RT
         bne +
@@ -317,6 +373,7 @@ hright: inc px
         dec px
         jmp nohmove
 hok:    inc dirty
+        inc gst
         +sound 28, 2, 0, $11
 nohmove:
         ; gravity (down held = fast)
@@ -338,10 +395,12 @@ nohmove:
         inc py
         jsr fits
         bne +
-        lda joy                 ; soft drop: 1 point per row fallen with down held
+        lda joy                 ; soft drop: 1 point per row fallen with down held (1P shows the score)
         and #J_DN
         beq nosd
-        sei
+        lda players
+        cmp #2
+        beq nosd
         sed
         clc
         lda score
@@ -354,7 +413,6 @@ nohmove:
         adc #0
         sta score+2
         cld
-        cli
         jsr showstats
 nosd:   jmp nograv
 +       dec py
@@ -362,9 +420,26 @@ nosd:   jmp nograv
         jsr lock
         +sound 14, 5, $fd, $81
         jsr clear
+        jsr garbapply           ; C: the garbage pushed the stack over the top
+        bcs topped
         jsr spawn
+        bne topped
+        jsr showstats
+nograv: lda dirty
         beq +
         jsr draw
++       clc
+        rts
+topped: sec
+        rts
+
+; round over, cur = loser. 1P: banner, fire, maybe the high-score board; 2P: winner banner, fire = rematch.
+gameover:
+        lda players
+        cmp #2
+        bne +
+        jmp gameover2
++       jsr draw
         jsr showstats
         jsr musicstop
         +sound 90, 60, $ff, $21   ; falling saw
@@ -386,12 +461,32 @@ nosd:   jmp nograv
         jsr board
         jmp setup
 ngame:  jmp newgame
-+       jsr showstats
-nograv:
-        lda dirty
-        beq +
-        jsr draw
-+       jmp loop
+
+gameover2:
+        jsr musicstop
+        +sound 90, 60, $ff, $21
+        +puts SCR+11*40+16, t_win, 7
+        lda cur                 ; winner = the other player
+        eor #1
+        clc
+        adc #$31
+        sta SCR+11*40+17
+        +puts SCR+12*40+15, t_fire, 10
+        +fill COL+11*40+16, 1, 7
+        +fill COL+12*40+15, 1, 10
+-       jsr waitframe           ; wait for fire release, then press
+        jsr readin
+        lda fire
+        bne -
+-       jsr waitframe
+        jsr readin
+        lda fire
+        beq -
+-       jsr waitframe           ; release, so the title doesn't start at once
+        jsr readin
+        lda fire
+        bne -
+        jmp restart
 
 ; title screen: raster bars, cycling TETRIS, blinking "press fire", pieces raining below; fire/any key starts
 intro:
@@ -401,6 +496,15 @@ intro:
         +trow 3
         +trow 4
         +puts SCR+11*40+15, t_fire, 10
+        +puts SCR+10*40+15, t_lr, 10
+        +fill COL+10*40+15, 12, 10
+        +fill COL+9*40+15, 7, 9
+        lda #11                 ; the raining piece uses the 1P tiles
+        sta c0
+        lda #2
+        sta cw
+        lda #CH_BLKL
+        sta tblk
         jsr spawn
         lda #3
         sta px
@@ -445,18 +549,42 @@ rdraw:  lda #CH_BLKL
         sta pch
         jsr drawpiece
 irain:  jsr bars
-        jsr readjoy
-        and #J_FIRE
-        bne istart
-        jsr GETIN
+        jsr readin
+        lda jin                 ; left = 1 player, right = 2 players
+        ora jin+1
+        sta t2
+        and #J_LF
         beq +
-        cmp #$48                ; H = high scores
+        lda #1
+        sta players
++       lda t2
+        and #J_RT
+        beq +
+        lda #2
+        sta players
++       jsr showmode
+        lda fire
         bne istart
+        lda km                  ; RETURN starts too
+        and #2
+        bne istart
+        jsr hotkeys
+        and #8                  ; H = high scores
+        beq +
         lda #0
         jsr board
         jmp intro
 +       jmp iloop
 istart: +sound 50, 10, 5, $41
+        rts
+
+showmode:
+        lda players
+        cmp #2
+        beq +
+        +puts SCR+9*40+15, t_1p, 9
+        rts
++       +puts SCR+9*40+15, t_2p, 9
         rts
 
 ; three raster bars (border + background) bobbing in their own screen bands
@@ -509,9 +637,13 @@ bl1:    lda barcol,x
 
 ; sync to raster line 251 (start of the bottom border), then tick sound
 waitframe:
+        lda #1                  ; idle: agents poke/peek P2's state only now
+        sta idle
 -       lda $d012
         cmp #251
         bne -
+        lda #0
+        sta idle
         ; fall through
 
 soundtick:
@@ -731,7 +863,7 @@ random7:
         bcc +
         eor #$1d
 +       sta rnd
-        eor JIFFY
+        eor sfr
 -       cmp #7
         bcc +
         sbc #7
@@ -742,7 +874,7 @@ random7:
 spawn:
         lda nxt
         sta pid
-        jsr random7
+        jsr getseq
         sta nxt
         ldx pid
         lda pcols,x
@@ -791,7 +923,7 @@ fits:
         clc
         adc t1
         tax
-        lda BOARD,x
+bpa:    lda BOARD,x             ; (the BOARD operands are patched to the active board's page by setboard)
         bne bad
         iny
         iny
@@ -848,6 +980,8 @@ rotate:
 rdone:  rts
 
 lock:
+        lda #1
+        sta dfull
         ldy #0
 -       lda cells,y
         clc
@@ -869,7 +1003,7 @@ lock:
         adc t1
         tax
         lda pcol
-        sta BOARD,x
+bpb:    sta BOARD,x
         iny
         iny
         cpy #8
@@ -888,6 +1022,9 @@ cf1:    jsr rowfull
 +       dec row
         bpl cf1
         lda nlines
+        beq +
+        ldx players             ; no blocking flash in 2P: the other board keeps running
+        cpx #2
         beq +
         lda #8                  ; let the flash show, shaking the screen
         sta fcnt
@@ -917,7 +1054,8 @@ cl2:    dec row
         bpl cl1
         ldx nlines
         beq +
-        sei
+        jsr sendgarb
+        ldx nlines
         sed
         lda lvl                 ; score += pts * (level + 1)
         sta t1
@@ -941,7 +1079,6 @@ cl2:    dec row
         adc #0
         sta lines+1
         cld
-        cli
         lda lines+1             ; level = tens digit (9 from 100 lines on)
         beq lv1
         lda #9
@@ -972,7 +1109,8 @@ lv2:    sta lvl
 rowfull:
         jsr rowidx
         ldy #10
--       lda BOARD,x
+-
+bpc:    lda BOARD,x
         beq +
         inx
         dey
@@ -1030,6 +1168,8 @@ rowidx:
 
 ; drop everything above `row` by one, clear top row
 rmrow:
+        lda #1
+        sta dfull
         jsr rowidx
         txa
         clc
@@ -1037,19 +1177,24 @@ rmrow:
         tax
 -       cpx #10
         bcc +
-        lda BOARD-10,x
-        sta BOARD,x
+bpd:    lda BOARD-10,x
+bpe:    sta BOARD,x
         dex
         jmp -
 +       ldx #9
         lda #0
--       sta BOARD,x
+-
+bpf:    sta BOARD,x
         dex
         bpl -
         rts
 
 draw:
-        lda #0
+        lda players
+        cmp #2
+        bne +
+        jmp draw2
++       lda #0
         sta row
         sta idx
 dr1:    ldx row
@@ -1063,7 +1208,7 @@ dr1:    ldx row
         sta cptr+1
         ldy #1
 dr2:    ldx idx
-        lda BOARD,x
+bpg:    lda BOARD,x
         beq dr5
         ora #8                  ; multicolour body colour
         tax
@@ -1089,7 +1234,7 @@ dr3:    sta (sptr),y
         lda row
         cmp #20
         bne dr1
-        lda ghost
+dtail:  lda ghost
         beq noghost
         lda py                  ; ghost: where it would land
         pha
@@ -1097,17 +1242,17 @@ dr3:    sta (sptr),y
         jsr fits
         beq -
         dec py
-        lda #CH_GHL
+        lda tgh
         sta pch
         jsr drawpiece
         pla
         sta py
 noghost:
-        lda #CH_BLKL
+        lda tblk
         sta pch
         ; fall through
 
-; draw the 4 cells of the current piece with tile `pch` (+1 for the right half)
+; draw the 4 cells of the current piece with tile `pch` (+1 for the right half in 1P)
 drawpiece:
         lda #0
         sta ci
@@ -1115,20 +1260,23 @@ dr4:    ldx ci
         lda cells,x
         clc
         adc px
+        ldy cw
+        cpy #2
+        bne +
         asl
-        sec
-        adc #0                  ; 2*x + 1 for the wall column
++       clc
+        adc c0
         sta t1
         lda cells+1,x
         clc
         adc py
         tax
-        lda scrlo,x
+        lda scr0lo,x
         clc
         adc t1
         sta sptr
         sta cptr
-        lda scrhi,x
+        lda scr0hi,x
         adc #0
         sta sptr+1
         clc
@@ -1142,6 +1290,9 @@ dr4:    ldx ci
         sta (sptr),y
         txa
         sta (cptr),y
+        lda cw
+        cmp #2
+        bne +
         iny
         lda pch
         clc
@@ -1149,7 +1300,7 @@ dr4:    ldx ci
         sta (sptr),y
         txa
         sta (cptr),y
-        inc ci
++       inc ci
         inc ci
         lda ci
         cmp #8
@@ -1185,6 +1336,673 @@ wput:   lda #CH_WALL
         sta (cptr),y
         rts
 
+; clear the screen (not the sprite pointers) and colour RAM to white. The KERNAL's CHROUT would re-enable IRQs.
+cls:    ldx #0
+-       lda #32
+        sta SCR,x
+        sta SCR+$100,x
+        sta SCR+$200,x
+        sta SCR+$2e8,x
+        lda #1
+        sta COL,x
+        sta COL+$100,x
+        sta COL+$200,x
+        sta COL+$2e8,x
+        inx
+        bne -
+        rts
+
+; ---------------------------------------------------------------- 2 players
+; 2P screen: board 1 at cells 2-11 (walls 1/12), board 2 at cells 28-37 (walls 27/38), stats in the middle.
+setup2: jsr cls
+        jsr walls2
+        +puts SCR+2*40+14, t_p1, 2
+        +puts SCR+2*40+21, t_p2, 2
+        +puts SCR+4*40+14, t_next, 4
+        +puts SCR+4*40+21, t_next, 4
+        +puts SCR+9*40+14, t_lines, 5
+        +puts SCR+9*40+21, t_lines, 5
+        +puts SCR+13*40+14, t_level, 5
+        +puts SCR+13*40+21, t_level, 5
+        +puts SCR+17*40+14, t_garb, 4
+        +puts SCR+17*40+21, t_garb, 4
+        +fill COL+2*40+14, 7, 2
+        +fill COL+2*40+21, 2, 2
+        +fill COL+4*40+14, 3, 4
+        +fill COL+4*40+21, 3, 4
+        +fill COL+9*40+14, 3, 5
+        +fill COL+9*40+21, 3, 5
+        +fill COL+13*40+14, 3, 5
+        +fill COL+13*40+21, 3, 5
+        +fill COL+17*40+14, 3, 4
+        +fill COL+17*40+21, 3, 4
+        lda sfr
+        ora #1
+        sta rnd
+        jmp newgame
+
+walls2:
+        ldx #0
+w2l:    lda scr0lo,x
+        sta sptr
+        sta cptr
+        lda scr0hi,x
+        sta sptr+1
+        clc
+        adc #$d4
+        sta cptr+1
+        cpx #20
+        beq w2b
+        ldy #1
+        jsr wput
+        ldy #12
+        jsr wput
+        ldy #27
+        jsr wput
+        ldy #38
+        jsr wput
+        inx
+        bne w2l
+w2b:    ldy #12
+-       jsr wput
+        dey
+        bne -
+        ldy #38
+-       jsr wput
+        dey
+        cpy #26
+        bne -
+        rts
+
+; 2P draw: the board rows the piece or ghost touched now or at the last draw (all if the board changed), then ghost + piece
+draw2:  lda ghost
+        beq +
+        lda gst                 ; ghost landing row, unless only gravity moved the piece
+        ora dfull
+        beq +
+        lda #0
+        sta gst
+        lda dfull
+        beq +++
+        jsr calch
++++     jsr ghostrow
++       lda dfull
+        beq d2b
+        lda #0
+        sta dfull
+        sta blo
+        lda #19
+        sta bhi
+        bne d2r
+d2b:    lda py
+        sta blo
+        sta bhi
+        lda ly
+        jsr span
+        lda ghost               ; the ghost's rows only when it moved
+        beq +
+        lda gy
+        cmp lgy
+        beq +
+        jsr span
+        lda lgy
+        jsr span
++       lda bhi
+        clc
+        adc #3
+        cmp #20
+        bcc +
+        lda #19
++       sta bhi
+d2r:    lda blo
+        sta row
+d21:    jsr rowidx
+        stx idx
+        ldx row
+        lda scr0lo,x
+        clc
+        adc c0
+        sta sptr
+        sta cptr
+        lda scr0hi,x
+        adc #0
+        sta sptr+1
+        clc
+        adc #$d4
+        sta cptr+1
+        ldy #0
+d22:    ldx idx
+bpg2:   lda BOARD,x
+        beq d23
+        ora #8
+        tax
+        lda #CH_BLK1
+        cpx #8                  ; 8 = garbage
+        bne d24
+        lda #CH_GARB
+        bne d24
+d23:    ldx #8
+        lda #CH_WELL
+d24:    sta (sptr),y
+        txa
+        sta (cptr),y
+        inc idx
+        iny
+        cpy #10
+        bne d22
+        inc row
+        lda bhi
+        cmp row
+        bcs d21
+        lda ghost
+        beq +
+        lda py
+        pha
+        lda gy
+        sta py
+        lda tgh
+        sta pch
+        jsr drawpiece
+        pla
+        sta py
++       lda tblk
+        sta pch
+        jsr drawpiece
+        lda py
+        sta ly
+        lda gy
+        sta lgy
+        rts
+
+; top block row of every column of the active board -> hgt
+calch:  ldy #9
+ch1:    sty t1
+        ldx t1
+        lda #0
+        sta t2
+ch2:
+bph2:   lda BOARD,x
+        bne ch3
+        inc t2
+        txa
+        clc
+        adc #10
+        tax
+        cpx #200
+        bcc ch2
+ch3:    ldy t1
+        lda t2
+        sta hgt,y
+        dey
+        bpl ch1
+        rts
+
+; gy = row the piece lands on. Straight from the column heights when all 4 cells are above their column's top
+; block, else (sliding under an overhang) by dropping it with fits.
+ghostrow:
+        lda #$ff
+        sta t3
+        ldy #0
+gr1:    lda cells,y
+        clc
+        adc px
+        tax
+        lda hgt,x
+        sec
+        sbc cells+1,y
+        bcc gslow
+        sbc #1
+        bcc gslow
+        cmp py
+        bcc gslow
+        cmp t3
+        bcs +
+        sta t3
++       iny
+        iny
+        cpy #8
+        bne gr1
+        lda t3
+        sta gy
+        rts
+gslow:  lda py
+        pha
+-       inc py
+        jsr fits
+        beq -
+        dec py
+        lda py
+        sta gy
+        pla
+        sta py
+        rts
+
+; blo/bhi widened to include A
+span:   cmp blo
+        bcs +
+        sta blo
++       cmp bhi
+        bcc +
+        sta bhi
++       rts
+
+; level, lines and garbage of the active player under its heading, then its next piece
+showstats2:
+        ldx pn
+        ldy sct,x
+        lda lines+1
+        jsr bcd
+        pha
+        txa
+        sta SCR+10*40,y
+        pla
+        sta SCR+10*40+1,y
+        lda lines
+        jsr bcd
+        pha
+        txa
+        sta SCR+10*40+2,y
+        pla
+        sta SCR+10*40+3,y
+        lda lvl
+        ora #$30
+        sta SCR+14*40,y
+        lda garb
+        cmp #10
+        bcc +
+        lda #9
++       ora #$30
+        sta SCR+18*40,y
+        ; fall through
+
+; 4x2-cell preview of `nxt`
+shownext2:
+        ldx pn
+        lda sct,x
+        clc
+        adc #<(SCR+5*40)
+        sta sptr
+        sta cptr
+        lda #>(SCR+5*40)
+        adc #0
+        sta sptr+1
+        clc
+        adc #$d4
+        sta cptr+1
+        lda #CH_BLANKL
+        ldy #3
+-       sta (sptr),y
+        dey
+        bpl -
+        ldy #43
+-       sta (sptr),y
+        dey
+        cpy #39
+        bne -
+        ldx nxt
+        lda pcols,x
+        ora #8
+        sta ncol
+        txa
+        asl
+        asl
+        asl
+        sta t3
+        lda #0
+        sta ci
+-       lda ci
+        clc
+        adc t3
+        tax
+        lda shapes+1,x          ; y is 0 or 1
+        beq +
+        lda #40
++       sta t1
+        lda shapes,x
+        clc
+        adc t1
+        tay
+        lda #CH_BLK1
+        sta (sptr),y
+        lda ncol
+        sta (cptr),y
+        inc ci
+        inc ci
+        lda ci
+        cmp #8
+        bne -
+        rts
+
+; tile set and cell width for `players`
+setmode:
+        lda players
+        cmp #2
+        beq +
+        lda #2
+        sta cw
+        lda #CH_BLKL
+        sta tblk
+        lda #CH_GHL
+        sta tgh
+        rts
++       lda #1
+        sta cw
+        lda #CH_BLK1
+        sta tblk
+        lda #CH_GH1
+        sta tgh
+        rts
+
+; A = player number: fresh state in CTX with an empty board, first piece spawned and drawn
+initplayer:
+        pha
+        ldx #CTXN-1
+        lda #0
+-       sta CTX,x
+        dex
+        bpl -
+        pla
+        sta pn
+        inc dfull
+        tax
+        lda bht,x
+        jsr setboard
+        ldx #0
+        txa
+-
+bpk:    sta BOARD,x
+        inx
+        cpx #200
+        bne -
+        lda players
+        cmp #2
+        bne +
+        ldx pn
+        lda c0t2,x
+        bne ++
++       lda #11
+++      sta c0
+        lda #$ff
+        sta prev
+        lda #48                 ; NES gravity table, level 0
+        sta gint
+        sta gcnt
+        jsr getseq
+        sta nxt
+        jsr spawn
+        jsr draw
+        jmp showstats
+
+; exchange CTX with PC2 (P1 <-> P2) and aim the BOARD operands at the new active board.
+; ponytail: self-modifying BOARD,x operands keep the game code single-board; zero-page pointers would cost a rewrite.
+swapctx:
+        ldx #CTXN-1
+-       ldy PC2,x
+        lda CTX,x
+        sta PC2,x
+        tya
+        sta CTX,x
+        dex
+        bpl -
+        ldx pn
+        lda bht,x
+        ; fall through
+
+; A = page of the active board
+setboard:
+        sta bpa+2
+        sta bpb+2
+        sta bpc+2
+        sta bpe+2
+        sta bpf+2
+        sta bpg+2
+        sta bpg2+2
+        sta bph2+2
+        sta bpk+2
+        sta bpt+2
+        sta bph+2
+        sta bpi+2
+        sta bpj+2
+        sec
+        sbc #1
+        sta bpd+2
+        rts
+
+; next piece of the shared sequence for this player; the one furthest ahead extends it
+; ponytail: 64-entry ring, breaks if one player gets 64 pieces ahead of the other
+getseq: lda ridx
+        cmp wptr
+        bne +
+        jsr random7
+        pha
+        lda wptr
+        and #63
+        tax
+        pla
+        sta SEQ,x
+        inc wptr
++       lda ridx
+        and #63
+        tax
+        inc ridx
+        lda SEQ,x
+        rts
+
+; 2P: nlines cleared -> garbage rows for the other player (2/3/4 -> 1/2/4); their context is always in PC2
+sendgarb:
+        lda players
+        cmp #2
+        bne +
+        ldx nlines
+        lda gtbl,x
+        clc
+        adc PC2+garb-CTX
+        sta PC2+garb-CTX
++       rts
+
+; push the waiting garbage rows in, all with the same hole. C set if a block got pushed off the top.
+garbapply:
+        lda garb
+        beq +
+        sta t2
+        lda #0
+        sta garb
+        jsr random7             ; hole column 0-9
+        sta t1
+        lda rnd
+        and #3
+        clc
+        adc t1
+        sta t1
+-       jsr garbrow
+        bcs ++
+        dec t2
+        bne -
++       clc
+++      rts
+
+; shift the board up one row, new bottom row = garbage with a hole at column t1. C set if the top row wasn't empty.
+garbrow:
+        lda #1
+        sta dfull
+        ldx #9
+        lda #0
+-
+bpt:    ora BOARD,x
+        dex
+        bpl -
+        cmp #1
+        php
+        ldx #0
+-
+bph:    lda BOARD+10,x
+bpi:    sta BOARD,x
+        inx
+        cpx #190
+        bne -
+        ldx #9
+-       lda #8                  ; garbage cell
+        cpx t1
+        bne +
+        lda #0
++
+bpj:    sta BOARD+190,x
+        dex
+        bpl -
+        plp
+        rts
+
+; ---------------------------------------------------------------- keys and joysticks
+!macro kbit .var, .col, .mask, .bit {   ; .var |= .bit if that key is down
+        lda km+.col
+        and #.mask
+        beq .n
+        lda .var
+        ora #.bit
+        sta .var
+.n
+}
+
+; jin = P1: joystick port 2, jin+1 = P2: W A S D or joystick port 1; fire = any fire button or space; km = keyboard matrix.
+; ponytail: a joystick held while scanning also selects its columns, so P1 left/down can ghost keys of P2; P2 on a joystick avoids it.
+readin: lda #$ff
+        sta $dc00
+        lda $dc01               ; no column selected: only port 1's joystick pulls rows low
+        eor #$ff
+        sta rmask               ; (VICE's joyport sim device also pulls rows 5-7)
+        and #$1f
+        sta jin+1
+        lda $dc00               ; port 2 joystick
+        eor #$ff
+        and #$1f
+        sta jin
+        lda rmask
+        eor #$ff
+        sta rmask               ; rows free to read as keys
+        lda #$fe
+        sta t2
+        ldx #0
+-       lda t2
+        sta $dc00
+        lda $dc01
+        eor #$ff
+        and rmask
+        sta km,x
+        sec
+        rol t2
+        inx
+        cpx #8
+        bne -
+        lda #$ff
+        sta $dc00
+        +kbit jin+1, 1, $02, J_UP       ; W
+        +kbit jin+1, 1, $20, J_DN       ; S
+        lda km+1                ; A and D share row 2. P1's joystick down/left holds column 1/2 low in every scan,
+        and #$04                ; so A/D show up in each other's column: tell them apart, or drop both if both are held.
+        sta t1                  ; A
+        lda km+2
+        and #$04
+        sta t2                  ; D
+        lda jin
+        and #J_DN|J_LF
+        cmp #J_DN|J_LF
+        bne +
+        lda #0
+        sta t1
+        sta t2
++       lda jin
+        and #J_DN
+        beq +
+        lda t1                  ; down: A is real, D only if A is up
+        beq +
+        lda #0
+        sta t2
++       lda jin
+        and #J_LF
+        beq +
+        lda t2                  ; left: D is real, A only if D is up
+        beq +
+        lda #0
+        sta t1
++       lda t1
+        beq +
+        lda jin+1
+        ora #J_LF
+        sta jin+1
++       lda t2
+        beq +
+        lda jin+1
+        ora #J_RT
+        sta jin+1
++
+        +kbit jin+1, 7, $10, J_FIRE     ; space
+        lda jin
+        ora jin+1
+        and #J_FIRE
+        sta fire
+        rts
+
+; hkn and A = hotkeys newly pressed: P 1, G 2, M 4, H 8 (agents: bits in KINJ count too)
+hotkeys:
+        lda #0
+        sta hk
+        +kbit hk, 5, $02, 1     ; P
+        +kbit hk, 3, $04, 2     ; G
+        +kbit hk, 4, $10, 4     ; M
+        +kbit hk, 3, $20, 8     ; H
+        lda hkp
+        eor #$ff
+        and hk
+        ora KINJ
+        ldx #0
+        stx KINJ
+        ldx hk
+        stx hkp
+        sta hkn
+        rts
+
+; one newly pressed key from km per call: A = screen code A-Z (1-26), $80 del, 0 none (agents: KCH)
+getkey: lda KCH
+        beq gk0
+        ldx #0
+        stx KCH
+        ora #0
+        rts
+gk0:    ldx #0
+-       lda kmp,x               ; keys down now that weren't at the last call (so a key still held doesn't hide the next)
+        eor #$ff
+        and km,x
+        bne gk2
+        inx
+        cpx #8
+        bne -
+        lda #0
+        beq gk4
+gk2:    ldy #0                  ; column x, lowest set row bit -> y
+-       lsr
+        bcs +
+        iny
+        bne -
++       txa
+        asl
+        asl
+        asl
+        sta t1
+        tya
+        clc
+        adc t1
+        tax
+        lda ktab,x
+gk4:    pha
+        ldx #7
+-       lda km,x
+        sta kmp,x
+        dex
+        bpl -
+        pla
+        ora #0                  ; flags for the caller
+        rts
+
 bcd:    pha
         lsr
         lsr
@@ -1197,8 +2015,25 @@ bcd:    pha
         ora #$30
         rts
 
-; P: hide the well, silence the music, wait for P again
+; repaint the boards and stats of both players
+redrawall:
+        inc dfull
+        jsr draw
+        jsr showstats
+        lda players
+        cmp #2
+        bne +
+        jsr swapctx
+        inc dfull
+        jsr draw
+        jsr showstats
+        jsr swapctx
++       rts
+
+; P: silence the music, wait for P again
 pause:  lda mon
+        pha
+        lda hkn
         pha
         jsr musicstop
         +puts SCR+10*40+18, t_pause, 6
@@ -1206,10 +2041,14 @@ pause:  lda mon
 -       lda $d012               ; plain frame sync, no sound tick
         cmp #251
         bne -
--       jsr GETIN
-        cmp #$50
-        bne -
-        jsr draw
+        jsr readin
+        jsr hotkeys
+        and #1
+        beq -
+        +puts SCR+10*40+18, t_blank, 6  ; (2P: the stats columns don't cover all of it)
+        jsr redrawall
+        pla
+        sta hkn
         pla
         beq +
         jsr musicstart
@@ -1280,20 +2119,20 @@ insfound:
 board:  sta hent
         lda #0
         sta harm
-        lda #$93
-        jsr CHROUT
+        jsr cls
         +puts SCR+4*40+14, t_hs, 11
         +fill COL+4*40+14, 7, 11
 bloop:  jsr waitframe
+        jsr readin
         jsr hsrows
         lda hent
         beq bwait
         +puts SCR+20*40+13, t_ent, 13
         +fill COL+20*40+13, 3, 13
-        jsr GETIN
+        jsr getkey
         bne +
         jmp bloop
-+       cmp #$14                ; DEL
++       cmp #$80                ; DEL
         bne +
         lda hpos
         beq bloop
@@ -1302,23 +2141,26 @@ bloop:  jsr waitframe
         lda #$2d
         sta HS_NM,x
         jmp bloop
-+       cmp #$41                ; letters only
-        bcc bloop
-        cmp #$5b
-        bcs bloop
-        and #$3f
++       cmp #$81                ; RETURN ends the entry once 3 letters are in
+        bne +
+        lda hpos
+        cmp #3
+        bne bl2
+        lda #0
+        sta hent
+        +fill COL+20*40+13, 0, 13
+        +puts SCR+20*40+13, t_blank, 13
+bl2:    jmp bloop
++       cmp #27                 ; letters only (screen codes 1-26), 3 at most
+        bcs bl2
+        ldx hpos
+        cpx #3
+        bcs bl2
         pha
         jsr hsoff
         pla
         sta HS_NM,x
         inc hpos
-        lda hpos
-        cmp #3
-        bne bloop
-        lda #0
-        sta hent
-        +fill COL+20*40+13, 0, 13
-        +puts SCR+20*40+13, t_blank, 13
         jmp bloop
 bwait:  +puts SCR+20*40+15, t_fire, 10
         +fill COL+20*40+15, 1, 10
@@ -1430,7 +2272,11 @@ hr1:    ldx row
 +       rts
 
 showstats:
-        lda score+2
+        lda players
+        cmp #2
+        bne +
+        jmp showstats2
++       lda score+2
         jsr bcd
         stx SCR+5*40+2
         sta SCR+5*40+3
@@ -1552,6 +2398,22 @@ shk:    !byte 0,0,3,6,2,5,1,3,0
 ; screen address of board row y, wall column (20 = bottom wall row)
 scrlo:  !for i, 0, 20 { !byte <(SCR+(1+i)*40+10) }
 scrhi:  !for i, 0, 20 { !byte >(SCR+(1+i)*40+10) }
+; same from column 0
+scr0lo: !for i, 0, 20 { !byte <(SCR+(1+i)*40) }
+scr0hi: !for i, 0, 20 { !byte >(SCR+(1+i)*40) }
+bht:    !byte >BOARD, >BOARD2   ; board page per player
+c0t2:   !byte 2, 28             ; 2P: screen column of cell 0
+sct:    !byte 14, 21            ; 2P: stats column
+gtbl:   !byte 0,0,1,2,4         ; garbage rows per rows cleared
+; keyboard matrix (column * 8 + row) -> A-Z screen codes, $80 del, $81 return
+ktab:   !byte $80, $81, 0, 0, 0, 0, 0, 0
+        !byte 0, 23, 1, 0, 26, 19, 5, 0
+        !byte 0, 18, 4, 0, 3, 6, 20, 24
+        !byte 0, 25, 7, 0, 2, 8, 21, 22
+        !byte 0, 9, 10, 0, 13, 11, 15, 14
+        !byte 0, 16, 12, 0, 0, 0, 0, 0
+        !byte 0, 0, 0, 0, 0, 0, 0, 0
+        !byte 0, 0, 0, 0, 0, 0, 17, 0
 ; tiles (screen codes 64-71), all multicolour 4x8: 01 = D022 highlight, 10 = D023 shadow, 11 = colour RAM
 tiles:  !byte $55,$7f,$7f,$7f,$7f,$7f,$7f,$aa   ; block left
         !byte $55,$fe,$fe,$fe,$fe,$fe,$fe,$aa   ; block right
@@ -1561,6 +2423,8 @@ tiles:  !byte $55,$7f,$7f,$7f,$7f,$7f,$7f,$aa   ; block left
         !byte $55,$7e,$7e,$7e,$7e,$7e,$7e,$aa   ; single block (title)
         !fill 16, 0                             ; transparent blank L/R
         !fill 16, $ff                           ; well L/R (solid colour 11)
+        !byte $ff,$c3,$c3,$c3,$c3,$c3,$c3,$ff   ; 1-char ghost (2P)
+        !byte $55,$6a,$6a,$6a,$6a,$6a,$6a,$aa   ; garbage: D022 light grey edge, D023 dark grey body
 title:
         !text "### ### ### ##  # ### "
         !text " #  #    #  # # # #   "
@@ -1584,7 +2448,14 @@ t_hi:    !scr "hi   "
 t_blank: !scr "             "
 t_hs:    !scr "high scores"
 t_pause: !scr "paused"
-t_ent:   !scr "type initials"
+t_ent:   !scr "name + return"
+t_win:   !scr "p? wins"
+t_p1:    !scr "p1"
+t_p2:    !scr "p2"
+t_garb:  !scr "garb"
+t_1p:    !scr "1 player "
+t_2p:    !scr "2 players"
+t_lr:    !scr "left/right"
 hsl:     !for i, 0, 4 { !byte <(SCR+(7+2*i)*40+14) }
 hsh:     !for i, 0, 4 { !byte >(SCR+(7+2*i)*40+14) }
 
