@@ -181,6 +181,10 @@ J_FIRE = $10
 
 * = $0810
         sei                     ; IRQs stay off for good
+        lda #<nmi               ; RUN/STOP+RESTORE: see nmi
+        sta $0318
+        lda #>nmi
+        sta $0319
         jsr cls
         lda #14
         sta $d020
@@ -1865,6 +1869,14 @@ bpj:    sta BOARD+190,x
 
 ; jin = P1: joystick port 2, jin+1 = P2: W A S D or joystick port 1; fire = any fire button or space; km = keyboard matrix.
 ; ponytail: a joystick held while scanning also selects its columns, so P1 left/down can ghost keys of P2; P2 on a joystick avoids it.
+; The KERNAL's NMI stop test reads $DC01 without selecting a column, so it needs $DC00 = $7F (column 7, as its
+; own IRQ scan leaves it). Our scans end with $FF, so RUN/STOP+RESTORE did nothing.
+nmi:    pha
+        lda #$7f
+        sta $dc00
+        pla
+        jmp $fe47
+
 readin: lda #$ff
         sta $dc00
         lda $dc01               ; no column selected: only port 1's joystick pulls rows low

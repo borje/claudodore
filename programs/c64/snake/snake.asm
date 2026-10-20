@@ -136,6 +136,10 @@ LOGO     = SCR+3*40+6
 
 * = $0810
         sei
+        lda #<nmi               ; RUN/STOP+RESTORE: see nmi
+        sta $0318
+        lda #>nmi
+        sta $0319
         lda #0
         sta $d020
         sta $d021
@@ -866,6 +870,14 @@ gk5:    ora #0                  ; flags for the caller
 
 ; ---------------------------------------------------------------- input
 ; joy = port 2 joystick | W/A/S/D keys, joy+1 = port 1 joystick | I/J/K/L keys, fire = any fire or space
+; The KERNAL's NMI stop test reads $DC01 without selecting a column, so it needs $DC00 = $7F (column 7, as its
+; own IRQ scan leaves it). Our scans end with $FF, so RUN/STOP+RESTORE did nothing.
+nmi:    pha
+        lda #$7f
+        sta $dc00
+        pla
+        jmp $fe47
+
 readin: lda #$ff
         sta $dc00
         lda $dc01               ; no column selected: port 1 joystick only
