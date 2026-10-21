@@ -10,7 +10,7 @@ SCR    = $0400
 COL    = $d800
 BOARD  = $c000
 BOARD2 = $c300
-SEQ    = $c400          ; shared piece sequence, 64-entry ring
+SEQ    = $c400          ; shared piece sequence, 256-entry ring
 CHARS  = $3000
 PV     = SCR+6*40+32            ; next-piece preview, 4 rows x 8 cols
 FQ     = 17.0284                ; Hz -> SID freq (PAL clock)
@@ -452,12 +452,12 @@ gameover:
         +fill COL+10*40+16, 1, 9
         +fill COL+12*40+15, 1, 10
 -       jsr waitframe           ; wait for fire release, then press
-        jsr readjoy
-        and #J_FIRE
+        jsr readin
+        lda fire
         bne -
 -       jsr waitframe
-        jsr readjoy
-        and #J_FIRE
+        jsr readin
+        lda fire
         beq -
         jsr insert
         bcc ngame
@@ -467,7 +467,18 @@ gameover:
 ngame:  jmp newgame
 
 gameover2:
-        jsr musicstop
+        lda cur                 ; the loser's board as it ended: its last clear / the garbage that pushed it over isn't drawn yet
+        beq +
+        jsr swapctx
++       lda #0
+        sta blo
+        lda #19
+        sta bhi
+        jsr rows2
+        lda cur
+        beq +
+        jsr swapctx
++       jsr musicstop
         +sound 90, 60, $ff, $21
         +puts SCR+11*40+16, t_win, 7
         lda cur                 ; winner = the other player
@@ -853,13 +864,6 @@ b1:     lda bcnt
         lda #$10
         sta $d40b
 +       rts
-
-; A = pressed bits (J_*), positive logic
-readjoy:
-        lda $dc00
-        eor #$ff
-        and #$1f
-        rts
 
 random7:
         lda rnd
@@ -1424,8 +1428,6 @@ draw2:  lda ghost
         lda gst                 ; ghost landing row, unless only gravity moved the piece
         ora dfull
         beq +
-        lda #0
-        sta gst
         lda dfull
         beq +++
         jsr calch
@@ -1443,11 +1445,14 @@ d2b:    lda py
         sta bhi
         lda ly
         jsr span
-        lda ghost               ; the ghost's rows only when it moved
+        lda ghost               ; the ghost's rows when it moved: a new landing row, or sideways/rotated at the same one
         beq +
         lda gy
         cmp lgy
+        bne ++
+        lda gst
         beq +
+++      lda gy
         jsr span
         lda lgy
         jsr span
@@ -1458,7 +1463,31 @@ d2b:    lda py
         bcc +
         lda #19
 +       sta bhi
-d2r:    lda blo
+d2r:    jsr rows2
+        lda ghost
+        beq +
+        lda py
+        pha
+        lda gy
+        sta py
+        lda tgh
+        sta pch
+        jsr drawpiece
+        pla
+        sta py
++       lda tblk
+        sta pch
+        jsr drawpiece
+        lda py
+        sta ly
+        lda gy
+        sta lgy
+        lda #0
+        sta gst
+        rts
+
+; repaint board rows blo..bhi of the active board
+rows2:  lda blo
         sta row
 d21:    jsr rowidx
         stx idx
@@ -1498,24 +1527,6 @@ d24:    sta (sptr),y
         lda bhi
         cmp row
         bcs d21
-        lda ghost
-        beq +
-        lda py
-        pha
-        lda gy
-        sta py
-        lda tgh
-        sta pch
-        jsr drawpiece
-        pla
-        sta py
-+       lda tblk
-        sta pch
-        jsr drawpiece
-        lda py
-        sta ly
-        lda gy
-        sta lgy
         rts
 
 ; top block row of every column of the active board -> hgt
@@ -1718,14 +1729,13 @@ bpk:    sta BOARD,x
         inx
         cpx #200
         bne -
-        lda players
-        cmp #2
+        lda #11
+        ldx players
+        cpx #2
         bne +
         ldx pn
         lda c0t2,x
-        bne ++
-+       lda #11
-++      sta c0
++       sta c0
         lda #$ff
         sta prev
         lda #48                 ; NES gravity table, level 0
@@ -1773,35 +1783,34 @@ setboard:
         rts
 
 ; next piece of the shared sequence for this player; the one furthest ahead extends it
-; ponytail: 64-entry ring, breaks if one player gets 64 pieces ahead of the other
+; (a player 256 pieces ahead of the other would lap the ring: a soft-dropping player gains ~20 pieces a minute at level 0)
 getseq: lda ridx
         cmp wptr
         bne +
         jsr random7
-        pha
-        lda wptr
-        and #63
-        tax
-        pla
+        ldx wptr
         sta SEQ,x
         inc wptr
-+       lda ridx
-        and #63
-        tax
++       ldx ridx
         inc ridx
         lda SEQ,x
         rts
 
-; 2P: nlines cleared -> garbage rows for the other player (2/3/4 -> 1/2/4); their context is always in PC2
+; 2P: nlines cleared -> garbage rows for the other player (2/3/4 -> 1/2/4); their context is always in PC2.
+; Their GARB stat is repainted now: their own showstats only runs after a spawn, by which time garbapply has zeroed it.
 sendgarb:
         lda players
         cmp #2
         bne +
         ldx nlines
         lda gtbl,x
+        beq +
         clc
         adc PC2+garb-CTX
         sta PC2+garb-CTX
+        jsr swapctx
+        jsr showstats
+        jmp swapctx
 +       rts
 
 ; push the waiting garbage rows in, all with the same hole. C set if a block got pushed off the top.
@@ -2176,8 +2185,7 @@ bl2:    jmp bloop
         jmp bloop
 bwait:  +puts SCR+20*40+15, t_fire, 10
         +fill COL+20*40+15, 1, 10
-        jsr readjoy
-        and #J_FIRE
+        lda fire                ; (readin ran at bloop)
         bne +
         sta harm
         inc harm
@@ -2186,8 +2194,8 @@ bwait:  +puts SCR+20*40+15, t_fire, 10
         bne brel
         jmp bloop
 brel:   jsr waitframe           ; wait for release so the caller doesn't see fire
-        jsr readjoy
-        and #J_FIRE
+        jsr readin
+        lda fire
         bne brel
         rts
 

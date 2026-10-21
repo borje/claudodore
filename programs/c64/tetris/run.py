@@ -3,7 +3,9 @@ from pathlib import Path
 
 from retro import BUILD, C64, assemble
 
-PX, PY, PID, CELLS, SCORE, LINES, BOARD, NXT = 0xC160, 0xC161, 0xC162, 0xC164, 0xC16F, 0xC172, 0xC000, 0xC176  # CTX: P1 between frames
+CTX = 0xC160  # the active player's state (P1 between frames), field offsets as in tetris.asm
+PX, PY, PID, CELLS, GCNT, SCORE, LINES, NXT, GARB, DFULL, GST = (CTX + o for o in (0, 1, 2, 4, 13, 15, 18, 22, 23, 29, 31))
+BOARD = 0xC000
 KINJ, KCH = 0x33D, 0x33F  # agent key input: hotkey bits P 1, G 2, M 4, H 8; one letter as getkey returns it (IRQs are off: no KERNAL key buffer)
 SND, MON, MI = 0xC129, 0xC131, 0xC132
 SCR = 0x400
@@ -24,7 +26,7 @@ with C64() as c:
     c.poke(KINJ, bytes([8])); c.wait(0.3)  # H on the title: high-score board, fire returns to the title
     t = c.screen_text()
     assert "HIGH SCORES" in t and "1. ---" in t and "5. ---" in t, t
-    c.joyport("fire"); c.wait(0.3); c.joyport(); c.wait(0.3)
+    c.joyport("fire", port=1); c.wait(0.3); c.joyport(port=1); c.wait(0.3)  # either port's fire (or space) leaves it
     t = c.screen_text()
     assert "PRESS FIRE" in t and "HIGH SCORES" not in t, t
     c.joyport("fire"); c.wait(0.3); c.joyport()
@@ -140,7 +142,7 @@ with C64() as c:
     # P1 lives in CTX (0xC160) between frames; P2 in PC2 (0xC1A0), board at BOARD2. P2's state is only
     # valid while waitframe spins (IDLE), so poke/peek it right after idle().
     PLAYERS, IDLE, PC2, BOARD2 = 0xC13D, 0xC143, 0xC1A0, 0xC300
-    GARB = 23  # offset of the garbage queue in a player context
+    garb2 = PC2 + GARB - CTX  # P2's garbage queue
 
     def idle():
         for _ in range(300):
@@ -196,10 +198,12 @@ with C64() as c:
     c.poke(CELLS, bytes([0, 0, 0, 1, 0, 2, 0, 3])); c.poke(PX, bytes([9])); c.poke(PY, bytes([16]))
     c.poke(BOARD2, bytes(200))
     until(lambda: c.peek(LINES)[0] == 2)
-    assert c.peek(PC2 + GARB)[0] == 1, "garbage not queued for P2"
-    assert c.peek(0xC160 + GARB)[0] == 0, "P1 should get no garbage"
+    assert c.peek(garb2)[0] == 1, "garbage not queued for P2"
+    assert c.peek(GARB)[0] == 0, "P1 should get no garbage"
+    assert c.peek(SCR + 18 * 40 + 21)[0] == 0x31, "P2's GARB stat should show the queued row"
     c.poke(PC2 + 4, O_PIECE); c.poke(PC2, bytes([3])); c.poke(PC2 + 1, bytes([18]))  # P2's piece locks next tick
-    until(lambda: c.peek(PC2 + GARB)[0] == 0)
+    until(lambda: c.peek(garb2)[0] == 0)
+    assert c.peek(SCR + 18 * 40 + 21)[0] == 0x30, "P2's GARB stat should be back to 0"
     row = c.peek(BOARD2 + 190, 10)
     assert row.count(0) == 1, row
     assert c.peek(BOARD2 + 174, 2) != bytes(2) and c.peek(BOARD2 + 184, 2) != bytes(2), "O should have moved up a row"
@@ -210,12 +214,16 @@ with C64() as c:
     ghosts = lambda: [(y, x) for y in range(20) for x in range(10) if c.peek(SCR + 40 + 40 * y + 2 + x)[0] == 74]
     c.poke(KINJ, bytes([2])); c.wait(0.2); idle()
     c.poke(BOARD, bytes(200)); c.poke(BOARD + 190, bytes([1] * 5))  # row 19, cols 0-4
-    c.poke(CELLS, O_PIECE); c.poke(PX, bytes([3])); c.poke(PY, bytes([2])); c.poke(0xC17D, bytes([1])); c.poke(0xC16D, bytes([1]))  # dfull, gravity next frame
+    c.poke(CELLS, O_PIECE); c.poke(PX, bytes([3])); c.poke(PY, bytes([2])); c.poke(DFULL, bytes([1])); c.poke(GCNT, bytes([1]))  # board changed, gravity next frame
     c.wait(0.2)
     assert ghosts() == [(17, 4), (17, 5), (18, 4), (18, 5)], ghosts()
     idle()
+    c.poke(PX, bytes([2])); c.poke(GST, bytes([1])); c.poke(GCNT, bytes([1]))  # moved left, same landing row: the old outline goes
+    c.wait(0.2)
+    assert ghosts() == [(17, 3), (17, 4), (18, 3), (18, 4)], ghosts()
+    idle()
     c.poke(BOARD, bytes(200)); c.poke(BOARD + 54, bytes([1]))  # block at row 5, col 4: O at row 8 sits under it
-    c.poke(PY, bytes([8])); c.poke(0xC17D, bytes([1])); c.poke(0xC16D, bytes([1]))
+    c.poke(PX, bytes([3])); c.poke(PY, bytes([8])); c.poke(DFULL, bytes([1])); c.poke(GCNT, bytes([1]))
     c.wait(0.2)
     assert ghosts() == [(18, 4), (18, 5), (19, 4), (19, 5)], ghosts()
     c.poke(KINJ, bytes([2])); c.wait(0.2)
@@ -248,9 +256,10 @@ with C64() as c:
     # garbage that pushes a block off the top loses: P1's top row is occupied and it has garbage waiting
     idle()
     c.poke(BOARD, bytes(200)); c.poke(BOARD + 9, bytes([1]))
-    c.poke(0xC160 + GARB, bytes([1]))
+    c.poke(GARB, bytes([1]))
     c.poke(CELLS, O_PIECE); c.poke(PX, bytes([3])); c.poke(PY, bytes([18]))
     until(lambda: "P2 WINS" in c.screen_text()); c.wait(0.3)  # fire held while the banner appears is ignored
+    assert c.peek(SCR + 20 * 40 + 2, 10).count(75) == 9, "the fatal garbage row should be on screen under the banner"
     c.joyport("fire"); c.wait(0.5); c.joyport(); c.wait(0.5)
     t = c.screen_text()
     assert "WINS" not in t and "PRESS FIRE" in t, t
