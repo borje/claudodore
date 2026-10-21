@@ -5,6 +5,7 @@
 Gives a feedback loop: assemble -> launch -> read screen -> send keys -> screenshot.
 """
 import os
+import select
 import shutil
 import signal
 import socket
@@ -16,6 +17,7 @@ HOST, PORT = "127.0.0.1", 6502
 
 # Command codes from the VICE manual, "Binary monitor" chapter
 CMD_MEM_GET, CMD_MEM_SET = 0x01, 0x02
+CMD_CHECKPOINT_SET, CMD_CHECKPOINT_DELETE, CMD_CONDITION_SET = 0x12, 0x13, 0x22
 CMD_REGS_GET = 0x31
 CMD_RESOURCE_SET = 0x52
 CMD_KEYBOARD_FEED = 0x72
@@ -23,6 +25,10 @@ CMD_PING = 0x81
 CMD_DISPLAY_GET = 0x84
 CMD_JOYPORT_SET = 0xA2
 CMD_EXIT, CMD_QUIT, CMD_RESET, CMD_AUTOSTART = 0xAA, 0xBB, 0xCC, 0xDD
+# Async events (request id EVENT_ID): a checkpoint hit sends CHECKPOINT_INFO, then STOPPED
+EVENT_ID = 0xFFFFFFFF
+RESP_CHECKPOINT_INFO, RESP_JAM, RESP_STOPPED = 0x11, 0x61, 0x62
+CHECK_OPS = {"load": 1, "store": 2, "exec": 4}
 
 
 # Agent input convention (programs opt in): OR a bit into JOY_PRESS (the program clears it after
@@ -52,8 +58,9 @@ class Machine:
     PALETTE = None        # index = colour 0-15
     DISPLAY_CHIP = 0      # display-get chip selector byte
     BASIC_STARTS = ()     # load addresses that are BASIC programs (pointers get fixed up)
+    FPS = 50              # PAL frames per emulated second (wait() under warp counts frames)
 
-    def __init__(self, port=None, warp=False, verbose=False):
+    def __init__(self, port=None, warp=True, verbose=False):
         if port is None:  # pick a free port so a stale instance can never be mistaken for ours
             with socket.socket() as s:
                 s.bind((HOST, 0))
@@ -171,14 +178,17 @@ class Machine:
             buf += chunk
         return buf
 
+    def _packet(self):
+        """Read one response or event: (type, error, request id, body)."""
+        stx, api, blen, rtype, err, rid = struct.unpack("<BBIBBI", self._recv_exact(12))
+        return rtype, err, rid, self._recv_exact(blen)
+
     def _command(self, cmd, body=b""):
         self._req += 1
         rid = self._req
         self.sock.sendall(struct.pack("<BBIIB", 0x02, 0x02, len(body), rid, cmd) + body)
         while True:
-            hdr = self._recv_exact(12)
-            stx, api, blen, rtype, err, rrid = struct.unpack("<BBIBBI", hdr)
-            payload = self._recv_exact(blen)
+            rtype, err, rrid, payload = self._packet()
             if rrid == rid:
                 if err != 0:
                     raise RuntimeError(f"monitor error 0x{err:02x} for cmd 0x{cmd:02x}")
@@ -203,6 +213,70 @@ class Machine:
         """Let the machine run for `seconds` of wall-clock time, then leave it for inspection."""
         self.resume()
         time.sleep(seconds)
+
+    # ------------------------------------------------------------ checkpoints
+    def _checkpoint(self, start, end, op, cond=None):
+        """Set a stopping checkpoint (break/watch) over start..end, optionally conditional; returns its number."""
+        body = struct.pack("<HHBBBBB", start, end, 1, 1, CHECK_OPS[op], 0, 0)  # stop, enabled, op, not temporary, main memory
+        num = struct.unpack("<I", self._command(CMD_CHECKPOINT_SET, body)[:4])[0]
+        if cond:
+            self._condition(num, cond)
+        return num
+
+    def _condition(self, num, cond):
+        """(Re)set a checkpoint's condition, in text-monitor syntax (`$` hex, RL = raster line)."""
+        c = cond.encode()
+        self._command(CMD_CONDITION_SET, struct.pack("<IB", num, len(c)) + c)
+
+    def _run_to(self, num, timeout):
+        """Resume until checkpoint `num` stops the machine. On timeout stop it and return False."""
+        self.resume()  # its reply comes before the machine runs, so every later event is new
+        end = time.time() + timeout
+        hit = False
+        while True:
+            left = end - time.time()
+            if left <= 0 or not select.select([self.sock], [], [], left)[0]:
+                self.ping()  # any command stops the machine
+                return False
+            rtype, _, rid, body = self._packet()
+            if rid != EVENT_ID:
+                continue
+            if rtype == RESP_JAM:
+                raise RuntimeError(f"{self.NAME} CPU JAMmed")
+            if rtype == RESP_CHECKPOINT_INFO and struct.unpack("<I", body[:4])[0] == num and body[4]:
+                hit = True
+            elif rtype == RESP_STOPPED and hit:
+                return True
+
+    def run_until(self, addr, end=None, op="exec", timeout=10):
+        """Run until the CPU executes (op="exec"), reads ("load") or writes ("store") addr..end.
+
+        Stops right there (a load/store stops after the instruction). Returns False on timeout
+        (wall clock), with the machine stopped wherever it was. Deterministic in emulated time,
+        unlike run()/wait() without warp.
+        """
+        num = self._checkpoint(addr, addr if end is None else end, op)
+        try:
+            return self._run_to(num, timeout)
+        finally:
+            self._command(CMD_CHECKPOINT_DELETE, struct.pack("<I", num))
+
+    def run_frames(self, n, line=0, timeout=None):
+        """Run until raster line `line` has started n times (the first may be less than a frame away).
+
+        Exact emulated time whatever the host speed or warp: a conditional checkpoint on every
+        address stops at the first instruction on `line`, then at the first one after it.
+        """
+        num = self._checkpoint(0x0000, 0xFFFF, "exec")
+        end = time.time() + (10 + 2 * n / self.FPS if timeout is None else timeout)
+        try:
+            for _ in range(n):
+                for cond in (f"RL == ${line:x}", f"RL != ${line:x}"):
+                    self._condition(num, cond)
+                    if not self._run_to(num, end - time.time()):
+                        raise TimeoutError(f"run_frames: raster line {line} not reached; CPU stuck?")
+        finally:
+            self._command(CMD_CHECKPOINT_DELETE, struct.pack("<I", num))
 
     # ----------------------------------------------------------------- memory
     def peek(self, start, length=1):
@@ -268,11 +342,10 @@ class Machine:
         return path
 
     def record_gif(self, path, seconds=5, interval=0.15, fps=7, scale=1):
-        """Run the machine, capturing a frame every `interval` s of wall time, and save a GIF."""
+        """Run the machine, capturing a frame every `interval` s (see wait()), and save a GIF."""
         frames = []
-        end = time.time() + seconds
-        while time.time() < end:
-            self.run(interval)
+        for _ in range(max(1, round(seconds / interval))):
+            self.wait(interval)
             frames.append(self.screen_image(scale=scale))
         frames[0].save(path, save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
         return path
@@ -307,19 +380,23 @@ class Machine:
         for i in range(0, len(text), 10):  # C64 keyboard buffer holds 10 keys
             chunk = text[i:i + 10].encode("latin-1")
             self._command(CMD_KEYBOARD_FEED, struct.pack("<B", len(chunk)) + chunk)
-            self.run(0.3 if not self.warp else 0.05)  # let the KERNAL consume the keys
+            self.wait(0.3)  # let the KERNAL consume the keys
 
     def reset(self, hard=True):
         self._command(CMD_RESET, struct.pack("<B", 1 if hard else 0))
 
     def wait(self, seconds):
-        self.run(seconds)
+        """Run `seconds` of emulated time: exact frames under warp, wall clock otherwise."""
+        if self.warp:
+            self.run_frames(max(1, round(seconds * self.FPS)))
+        else:
+            self.run(seconds)
 
     def wait_for_text(self, needle, timeout=15, poll=0.5):
         """Run the machine until `needle` shows on screen. Returns the screen text or None."""
         end = time.time() + timeout
         while time.time() < end:
-            self.run(poll)
+            self.wait(poll)
             t = self.screen_text()  # this command also stops the machine
             if needle.upper() in t:
                 return t

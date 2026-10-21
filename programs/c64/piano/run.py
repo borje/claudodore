@@ -26,7 +26,7 @@ def text(c, col, row, n):
     return bytes(c.peek(0x0400 + cell(col, row), n))
 
 
-with C64() as c:
+with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.start(assemble(Path(__file__).with_name("piano.asm")))
     c.wait(0.5)
     if sys.argv[1:] == ["play"]:  # interactive: play on the real keyboard until the window is closed

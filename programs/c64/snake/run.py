@@ -39,7 +39,7 @@ def start_round(c, port):
     c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
 
 
-with C64() as c:
+with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.start(assemble(Path(__file__).with_name("snake.asm")))
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
         c.resume()

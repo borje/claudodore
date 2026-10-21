@@ -5,7 +5,7 @@ from retro import BUILD, VIC20, assemble
 
 PX, PY, CELLS, SCORE, LINES, BOARD, NXT = 0x1B00, 0x1B01, 0x1B04, 0x1B1D, 0x1B1F, 0x1A00, 0x1B25
 
-with VIC20(mem=0) as c:
+with VIC20(mem=0, warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.start(assemble(Path(__file__).with_name("tetris.asm")))
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
         c.resume()

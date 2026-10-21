@@ -11,7 +11,7 @@ SND, MON, MI = 0xC129, 0xC131, 0xC132
 SCR = 0x400
 
 prg = assemble(Path(__file__).with_name("tetris.asm"))
-with C64() as c:
+with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.start(prg)
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
         c.resume()
@@ -144,16 +144,17 @@ with C64() as c:
     PLAYERS, IDLE, PC2, BOARD2 = 0xC13D, 0xC143, 0xC1A0, 0xC300
     garb2 = PC2 + GARB - CTX  # P2's garbage queue
 
-    def idle():
-        for _ in range(300):
+    def idle():  # stop inside waitframe's spin: it stores 1 to IDLE on entry, 0 on exit
+        for _ in range(2):
+            if not c.run_until(IDLE, op="store"):
+                break
             if c.peek(IDLE)[0]:
                 return
-            c.run(0.003)
         raise AssertionError("machine never idle")
 
     def until(cond, secs=6):
         for _ in range(int(secs / 0.1)):
-            c.run(0.1)
+            c.wait(0.1)
             idle()
             if cond():
                 return

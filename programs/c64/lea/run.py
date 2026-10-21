@@ -3,7 +3,7 @@ from pathlib import Path
 
 from retro import BUILD, C64, assemble
 
-with C64() as c:
+with C64(warp=False) as c:  # a music demo: run.py is meant to be heard
     c.start(assemble(Path(__file__).with_name("lea.asm")))
     if "play" in sys.argv:  # just play, no checks (they pause VICE and glitch audio); Ctrl-C quits
         c.run(1e9)
