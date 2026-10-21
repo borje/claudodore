@@ -120,7 +120,7 @@ with C64() as c:
     assert "GAME OVER" in t, t
     assert c.peek(MON)[0] == 0, "music should stop at game over"
     c.screenshot(BUILD / "c64" / "tetris3.png")
-    c.joyport("fire"); c.wait(0.5); c.joyport()
+    c.joyport("fire", port=1); c.wait(0.5); c.joyport(port=1)  # either port's fire leaves game over
     t = c.screen_text()  # score 000040 made the board: type initials
     assert "NAME + RETURN" in t and "1. ---" in t, t
     for ch in (1, 2, 3, 4, 0x80, 0x80, 3, 0x81):  # A B C, a 4th letter is ignored, DEL DEL, C, RETURN: "AC" is too short to finish
@@ -190,6 +190,18 @@ with C64() as c:
     assert blocks(2) == 4 and blocks(28) == 4, (blocks(2), blocks(28))
     assert sum(c.peek(SCR + 5 * 40 + 14 + 40 * r, 4).count(69) for r in range(2)) == 4, "P1 next preview"
     assert sum(c.peek(SCR + 5 * 40 + 21 + 40 * r, 4).count(69) for r in range(2)) == 4, "P2 next preview"
+
+    # SEQ is a 256-entry ring: P2 100 pieces behind still reads its own entry; P1 at the end wraps wptr to 0
+    idle()
+    SEQ, WPTR, RIDX = 0xC400, 0xC141, CTX + 24
+    c.poke(SEQ, bytes(i % 7 for i in range(256)))
+    c.poke(WPTR, bytes([255])); c.poke(RIDX, bytes([255])); c.poke(PC2 + 24, bytes([155]))
+    c.poke(PC2 + 4, O_PIECE); c.poke(PC2, bytes([3])); c.poke(PC2 + 1, bytes([18]))  # P2 locks, spawns
+    until(lambda: c.peek(PC2 + 24)[0] == 156)
+    assert c.peek(PC2 + 22)[0] == 155 % 7 and c.peek(WPTR)[0] == 255, "P2 should read SEQ[155], not generate"
+    c.poke(CELLS, O_PIECE); c.poke(PX, bytes([3])); c.poke(PY, bytes([18]))  # P1 locks, generates SEQ[255]
+    until(lambda: c.peek(RIDX)[0] == 0)
+    assert c.peek(WPTR)[0] == 0 and c.peek(NXT)[0] == c.peek(SEQ + 255)[0], "wptr should wrap to 0"
 
     # P1 clears 2 rows -> 1 garbage row queued for P2, applied (hole in the bottom row) at P2's next lock
     idle()
