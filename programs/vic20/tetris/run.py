@@ -60,9 +60,10 @@ with VIC20(mem=0, warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real 
     n = c.peek(NXT)[0]
     assert c.peek(0x900E)[0] & 15 == 10, "volume not set"
     for _ in range(60):  # line-clear sweep: poll until lines==1, voice must be on right then
-        c.wait(0.05)
+        c.run_frames(1)
         if c.peek(LINES)[0] == 1:
             break
+    c.run_frames(1)  # the sound's first tick comes the frame after lines is updated
     assert c.peek(0x900C)[0] & 0x80, "no line-clear sound"
     c.wait(2)
     assert c.peek(0x900C)[0] == 0, "sound stuck on"

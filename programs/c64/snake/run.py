@@ -35,7 +35,7 @@ def fire(c, port):
 
 def start_round(c, port):
     fire(c, port)
-    c.wait(2.2)  # "get ready" pause
+    assert c.run_until(SPEED, op="store")  # end of the "get ready" pause: park before anything moves
     c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
 
 
