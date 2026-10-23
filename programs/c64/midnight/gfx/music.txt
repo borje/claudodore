@@ -1,0 +1,19 @@
+; Midnight Hollow music. One token per step: note (D4, C#5), `.` rest, `-` hold the previous note.
+; Each tune has a melody (voice 1, pulse) and a bass line (voice 2, saw) of the same length; tempo is set in
+; midnight.asm (setmusic table). `<name>` melody, `<name>b` bass.
+
+; theme: the old cheerful tune, now the ending (D minor, 8th notes)
+theme   D5 . A4 . F4 . D4 .   C#5 . A4 . E4 . C#4 .   D5 . A4 . F4 . D4 .   E5 . D5 . C#5 . A4 . A#4 . F4 . D4 . A#3 .   A4 . E4 . C#4 . A3 .   D4 F4 A4 D5 F5 . E5 D5   C#5 . A4 . D5 . . .
+themeb  D2 D3 D2 D3 D2 D3 D2 D3 A1 A2 A1 A2 A1 A2 A1 A2 D2 D3 D2 D3 D2 D3 D2 D3 A1 A2 A1 A2 A1 A2 A1 A2 A#1 A#2 A#1 A#2 A#1 A#2 A#1 A#2 A1 A2 A1 A2 A1 A2 A1 A2 D2 D3 D2 D3 D2 D3 D2 D3 A1 A2 A1 A2 D2 D3 D2 D3
+
+; intro + title: slow chromatic fall over a heartbeat bass
+intro   D4 - - - C#4 - - - C4 - - - B3 - - -   A#3 - - - A3 - - - D4 - F4 - E4 - C#4 -
+introb  D2 D3 D2 D3 D2 D3 D2 D3 D2 D3 D2 D3 D2 D3 D2 D3 A#1 A#2 A#1 A#2 A1 A2 A1 A2 D2 D3 D2 D3 A1 A2 A1 A2
+
+; levels 1-4: dance of death, 3/4 in D minor with tritones (G#/D) and a dragging waltz bass
+dance   A4 - - D5 - -   G#4 - - A4 - -   F4 - E4 - D4 -   C#4 - - - - .   D4 - F4 - A4 -   G#4 - - G4 - -   F4 - E4 - C#4 -   D4 - - - - .   A#4 - A4 - G#4 -   A4 - - D4 - -   A#4 - A4 - G4 -   F4 - - E4 - -   D5 - C#5 - C5 -   B4 - A#4 - A4 -   G#4 - - E4 - -   D4 - - - - .
+danceb  D2 . A2 . A2 .   G#1 . D2 . D2 .   A#1 . F2 . F2 .   A1 . E2 . C#2 .   D2 . A2 . A2 .   G1 . D2 . A#1 .   A1 . E2 . G2 .   D2 . A2 . D2 .   A#1 . F2 . F2 .   D2 . A2 . A2 .   G1 . D2 . D2 .   A1 . E2 . E2 .   D2 . A2 . G#2 .   G1 . D2 . G2 .   E2 . G#2 . D2 .   A1 . C#2 . E2 .
+
+; Moon Chamber: the Count's chase, driving octave ostinato, chromatic climb
+boss    D5 D5 . D5 C#5 . C5 .   B4 . A#4 . A4 - - -   D5 D5 . D5 D#5 . E5 .   F5 . E5 . C#5 - - -
+bossb   D2 D3 D2 D3 D2 D3 D2 D3   G#1 G#2 G#1 G#2 A1 A2 A1 A2   D2 D3 D2 D3 D2 D3 D2 D3   A#1 A#2 A#1 A#2 A1 A2 C#2 C#3

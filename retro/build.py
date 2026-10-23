@@ -22,11 +22,24 @@ def _out(src, out):
     return Path(out) if out else BUILD / src.parent.parent.name / (src.stem + ".prg")
 
 
-def assemble(src, out=None, **defs):
-    """Assemble with ACME -> .prg. Returns the output path. defs: -DNAME=value symbols."""
+def assemble(src, out=None, symbols=None, **defs):
+    """Assemble with ACME -> .prg. Returns the output path. defs: -DNAME=value symbols.
+
+    symbols: also write ACME's label list there (read it back with labels()).
+    """
     out = _out(src, out)
-    d = [f"-D{k}={v}" for k, v in defs.items()]
+    d = [f"-D{k}={v}" for k, v in defs.items()] + (["-l", str(symbols)] if symbols else [])
     return _run(["acme", "-f", "cbm", *d, "-o", str(out), str(src)], "ACME", out.resolve())
+
+
+def labels(path):
+    """ACME label list (assemble(symbols=...)) -> {name: value}."""
+    out = {}
+    for line in open(path):
+        p = line.split()
+        if len(p) >= 3 and p[1] == "=":
+            out[p[0]] = int(p[2].lstrip("$"), 16)
+    return out
 
 
 def compile_c(*srcs, out=None, cfg=None, target="c64"):

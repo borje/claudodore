@@ -18,6 +18,7 @@ class C64(Machine):
     PALETTE = PALETTE
     DISPLAY_CHIP = 1  # VIC-II
     BASIC_STARTS = (0x0801,)
+    ROM_RANGES = ((0xA000, 0xC000), (0xD000, 0x10000))  # BASIC, I/O + char ROM, KERNAL (seen at READY)
 
     def screen_dims(self):
         return 40, 25

@@ -58,6 +58,7 @@ class Machine:
     PALETTE = None        # index = colour 0-15
     DISPLAY_CHIP = 0      # display-get chip selector byte
     BASIC_STARTS = ()     # load addresses that are BASIC programs (pointers get fixed up)
+    ROM_RANGES = ()       # address ranges where a peek at READY shows ROM, not the RAM poked
     FPS = 50              # PAL frames per emulated second (wait() under warp counts frames)
 
     def __init__(self, port=None, warp=True, verbose=False):
@@ -119,8 +120,10 @@ class Machine:
         addr = struct.unpack("<H", data[:2])[0]
         body = data[2:]
         self.poke(addr, body)
-        if self.peek(addr, len(body)) != body:
-            raise RuntimeError(f"PRG verify failed at ${addr:04x}")
+        got = self.peek(addr, len(body))
+        for i, (a, b) in enumerate(zip(got, body)):  # bytes under ROM land in RAM but read back as ROM
+            if a != b and not any(lo <= addr + i < hi for lo, hi in self.ROM_RANGES):
+                raise RuntimeError(f"PRG verify failed at ${addr + i:04x}")
         end = addr + len(body)
         if addr in self.BASIC_STARTS:  # BASIC program: fix up start-of-variables pointers
             self.poke(0x2D, struct.pack("<H", end))
