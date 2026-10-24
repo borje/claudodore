@@ -1,5 +1,7 @@
 ; C64 two-player Snake. P1: joystick port 2 or W/A/S/D, P2: joystick port 1
-; or I/J/K/M. Any mix of 0, 1 or 2 joysticks works with no setup. First to 5 round wins takes the match.
+; or I/J/K/M. Any mix of 0, 1 or 2 joysticks works with no setup. Scores carry across rounds; a round win
+; is +5, first to 50 takes the match. An apple grows the eater 1, the other snake 3.
+; 10 apples by one player on a level -> next level (obstacles, all modes).
 ; Title: H shows the top-5 board (solo game over: type initials). Left/right picks solo (high score), vs computer, or 2 players. In 1-player modes P1 takes any
 ; controller; vs computer the computer steers P2.
 ; Heads are sprites gliding between cells (the cell itself holds an invisible CH_HID); bodies are chars.
@@ -81,7 +83,7 @@ rr     = $c36b
 rw     = $c36c
 rh     = $c36d
 level  = $c36e          ; solo: obstacle layout, +1 every LEVAPPLES apples
-lapples = $c36f
+lapples = $c371         ; apples on this level, per player
 lvlup  = $c370
 kmp    = $c380          ; getkey: keyboard matrix at the last call, 8 bytes
 knw    = $c388          ; getkey: keys newly down per column, 8 bytes
@@ -115,7 +117,6 @@ TEMPO    = 6
 FLOORCOL = 11
 WALLCOL  = 6
 APPLECOL = 10
-WINS     = 5
 LOGO     = SCR+3*40+6
 
 !macro text .c, .r, .col, .str {
@@ -301,9 +302,11 @@ title:  ldx #$ff                ; the board can be entered from deep in the titl
         jsr waitfire
         lda #0
         sta intitle
-        sta score               ; solo: score, level and lives run across rounds
+        sta score               ; score and level run across rounds
+        sta score+1
         sta level
         sta lapples
+        sta lapples+1
         sta lvlup
         lda players
         bne round
@@ -320,14 +323,8 @@ round:  ldx #0
         sta glide
         jsr drawfield
         jsr drawlevel
-        lda score
-        pha
         jsr initsnakes
-        pla
-        ldx players
-        bne +
-        sta score               ; solo keeps its score between lives
-+       jsr hud
+        jsr hud
         lda #13
         sta $d027
         lda #3
@@ -388,7 +385,10 @@ loop:   jsr vsync
         lda dead
         ora dead+1
         bne crash
-        lda lvlup
+        jsr fifty               ; versus: 50 from apples ends the match at once
+        bcc +
+        jmp match
++       lda lvlup
         beq +
         jmp levelup
 +       jmp loop
@@ -450,6 +450,7 @@ levelup:
         lda #0
         sta lvlup
         sta lapples
+        sta lapples+1
         sta glide
         lda level
         cmp #250
@@ -472,15 +473,21 @@ versus: lda dead
         lda dead
         beq +
         inx
-+       inc wins,x
++       sed                     ; round win: +5
+        lda score,x
+        clc
+        adc #5
+        bcc +
+        lda #$99
++       sta score,x
+        cld
         txa
         pha
         jsr hud
+        jsr fifty
         pla
         tax
-        lda wins,x
-        cmp #WINS
-        beq match
+        bcs match
         txa
         bne +
         +text 7, 12, 13, t_win1
@@ -1137,18 +1144,24 @@ advance:
         lda #CH_HID
         jsr putc
         lda eat,x
-        beq ++
-        lda hd,x                ; ponytail: ring holds 128 cells, so stop growing near that
-        sec
-        sbc tl,x
-        clc
-        adc grow,x
-        cmp #118
-        bcs +
-        lda grow,x
-        adc #3
-        sta grow,x
-+       sed
+        bne +
+        rts
++       lda players             ; solo: +3; versus: eater +1, the other snake +3
+        bne +
+        lda #3
+        jsr addgrow
+        jmp ++
++       lda #1
+        jsr addgrow
+        txa
+        eor #1
+        tax
+        lda #3
+        jsr addgrow
+        txa
+        eor #1
+        tax
+++      sed
         lda score,x
         clc
         adc #1
@@ -1156,10 +1169,8 @@ advance:
         lda #$99                ; ponytail: saturate, the board holds 2 digits
 +       sta score,x
         cld
-        lda players
-        bne lvdone
-        inc lapples
-        lda lapples
+        inc lapples,x
+        lda lapples,x
         cmp #LEVAPPLES
         bne lvdone
         sta lvlup
@@ -1187,7 +1198,35 @@ lvdone: dec ecnt
         jsr hud
         pla
         tax
-++      rts
+        rts
+
+; snake X grows A more cells; ponytail: ring holds 128 cells, so stop growing near that
+addgrow:
+        sta t1
+        lda hd,x
+        sec
+        sbc tl,x
+        clc
+        adc grow,x
+        cmp #118
+        bcs +
+        lda grow,x
+        adc t1
+        sta grow,x
++       rts
+
+; versus: X = a player with 50+ points (P1 first) -> carry set
+fifty:  lda players
+        beq ++
+        ldx #0
+-       lda score,x
+        cmp #$50
+        bcs +
+        inx
+        cpx #2
+        bne -
+++      clc
++       rts
 
 ; recolour every cell of snake X with t2
 paint:  lda t2
@@ -1212,10 +1251,8 @@ paint:  lda t2
         jmp -
 +       rts
 
-; solo level layouts (level mod NLEVELS; 0 = open): rects col, row, w, h, $ff ends
+; level layouts (level mod NLEVELS; 0 = open): rects col, row, w, h, $ff ends
 drawlevel:
-        lda players
-        bne dlend
         lda level
 -       cmp #NLEVELS
         bcc +
@@ -1315,6 +1352,12 @@ spawn:
         sta ax,y
         lda sy
         sta ay,y
+        ldx last                ; not within 2 cells of a head
+-       jsr adist
+        cmp #3
+        bcc spawn
+        dex
+        bpl -
         lda #APPLECOL
         sta t2
         lda #CH_APPLE
@@ -1328,7 +1371,6 @@ isnake: lda #0
         sta dead,x
         sta grow,x
         sta tl,x
-        sta score,x
         lda #3
         sta hd,x
         lda sdir,x
@@ -1615,7 +1657,7 @@ drawfield:
         sta SCR+24*40+39
         rts
 
-; row 0: P1 score + win pips, title, P2 win pips + score
+; row 0: P1 score (+ lives in solo), title, P2/computer or high score
 hud:    +text 1, 0, 13, t_p1
         +text 16, 0, 3, t_title
         lda #13
@@ -1655,32 +1697,6 @@ livq:   sta SCR+7,y
         lda score+1
         ldy #34
         jsr bcd
-        lda #WINS               ; P2 pips fill from the right
-        sec
-        sbc wins+1
-        sta t1
-        ldy #0
--       lda #CH_PIPE
-        ldx #11
-        cpy wins
-        bcs +
-        lda #CH_PIP
-        ldx #13
-+       sta SCR+7,y
-        txa
-        sta COL+7,y
-        lda #CH_PIPE
-        ldx #11
-        cpy t1
-        bcc +
-        lda #CH_PIP
-        ldx #3
-+       sta SCR+28,y
-        txa
-        sta COL+28,y
-        iny
-        cpy #WINS
-        bne -
         rts
 
 ; A = BCD at row 0 column Y, colour t2
@@ -2012,7 +2028,7 @@ t_matchc: !scr " computer wins the match! ", 0
 t_title: !scr "s n a k e", 0
 t_ctl1: !scr "player 1  port 2 / w a s d", 0
 t_ctl2: !scr "player 2  port 1 / i j k l", 0
-t_rule: !scr "first to five round wins", 0
+t_rule: !scr "first to 50. round win +5", 0
 t_start: !scr "press fire or space", 0
 t_f1:   !scr "f1 music on/off  h scores", 0
 t_ready: !scr "get ready!", 0

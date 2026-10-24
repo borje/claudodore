@@ -8,7 +8,7 @@ HD, DIR, ND, GROW, SCORE, WINS = 0xC300, 0xC304, 0xC306, 0xC308, 0xC310, 0xC312
 TICK, SPEED, PLAYERS, DEAD = 0xC321, 0xC322, 0xC32C, 0xC30A
 AX, AY, HX, HY, HI, MI, MON = 0xC330, 0xC332, 0xC334, 0xC336, 0xC341, 0xC343, 0xC346
 HS_SC, HS_NM, NEWROW, POS, ENTRY = 0xC350, 0xC355, 0xC364, 0xC365, 0xC366
-LEVEL, LAPPLES = 0xC36E, 0xC36F
+LEVEL, LAPPLES, ASLOT = 0xC36E, 0xC371, 0xC32F
 SCR = 0x400
 HID, CH_LD, CH_RU, APPLE, WALL, BLK = 89, 74, 77, 78, 80, 88
 OUT = BUILD / "c64"
@@ -35,7 +35,7 @@ def fire(c, port):
 
 def start_round(c, port):
     fire(c, port)
-    assert c.run_until(SPEED, op="store")  # end of the "get ready" pause: park before anything moves
+    assert c.run_until(TICK, op="store")  # end of the "get ready" pause (sta speed, sta tick): park before anything moves
     c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
 
 
@@ -85,13 +85,22 @@ with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.joyport("up", port=2); c.wait(0.2); c.joyport(port=2)
     assert c.peek(ND)[0] == 2, (c.peek(ND, 2), c.peek(DIR, 2))
 
-    # eat an apple: score, growth, respawn
+    # eat an apple: score, the eater grows 1 and the other snake 3, respawn
     h0 = head(c, 0)
     c.poke(h0 + 40, bytes([APPLE]))
     step(c)
-    assert c.peek(SCORE)[0] == 1 and c.peek(GROW)[0] == 3, (c.peek(SCORE), c.peek(GROW))
+    assert c.peek(SCORE)[0] == 1 and c.peek(GROW, 2) == bytes([1, 3]), (c.peek(SCORE), c.peek(GROW, 2))
     assert count(c, [APPLE]) == 3, "apple not respawned"
     assert "01" in c.screen_text().splitlines()[0]
+    # a respawned apple is never within 2 cells of a head
+    for _ in range(4):
+        c.poke(head(c, 0) + 40, bytes([APPLE]))
+        step(c)
+        a = c.peek(ASLOT)[0]
+        ax, ay = c.peek(AX + a)[0], c.peek(AY + a)[0]
+        for p in (0, 1):
+            assert abs(ax - c.peek(HX + p)[0]) + abs(ay - c.peek(HY + p)[0]) >= 3, (p, ax, ay)
+    assert c.peek(SCORE)[0] == 5
     c.screenshot(OUT / "snake1.png")
 
     # P1 hits a wall -> P2 takes the round
@@ -100,14 +109,24 @@ with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.wait(1.5)
     t = c.screen_text()
     assert "PLAYER 2 WINS ROUND" in t, t
-    assert c.peek(WINS, 2) == bytes([0, 1])
+    assert c.peek(SCORE, 2) == bytes([5, 5]), c.peek(SCORE, 2)  # round win +5
     c.screenshot(OUT / "snake2.png")
 
-    # next round (fire on port 1), P2 crashes while P1 is on match point
+    # next round (fire on port 1): scores carry over
     start_round(c, 1)
     assert c.peek(MON)[0] == 1, "port-1 fire must not toggle music"
-    assert count(c, [HID]) == 2 and c.peek(SCORE, 2) == bytes(2)
-    c.poke(WINS, bytes([4]))
+    assert count(c, [HID]) == 2 and c.peek(SCORE, 2) == bytes([5, 5])
+    # 10th apple on a level by one player -> next level with obstacles, scores kept
+    c.poke(LAPPLES, bytes([9]))
+    c.poke(head(c, 0) + 1, bytes([APPLE]))
+    step(c); c.wait(0.3)
+    assert "NEXT LEVEL" in c.screen_text()
+    assert c.run_until(TICK, op="store")
+    c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
+    assert c.peek(LEVEL)[0] == 1 and c.peek(LAPPLES, 2) == bytes(2) and c.peek(SCORE, 2) == bytes([6, 5])
+    assert count(c, [BLK]) == 18, count(c, [BLK])
+    # P2 crashes, the round win takes P1 to 50: match
+    c.poke(SCORE, bytes([0x45]))
     c.poke(head(c, 1) - 1, bytes([WALL]))
     step(c)
     c.wait(1.5)
@@ -117,7 +136,6 @@ with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     fire(c, 2)
     c.wait(0.5)
     assert "PRESS FIRE OR SPACE" in c.screen_text()
-    assert c.peek(WINS, 2) == bytes(2)
     assert "<    2 PLAYERS    >" in c.screen_text() and c.peek(PLAYERS)[0] == 2
 
     # 1 player vs computer: left toggles the mode
@@ -127,6 +145,7 @@ with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.screenshot(OUT / "snake4.png")
     start_round(c, 2)
     assert c.screen_text().splitlines()[0].endswith("CP"), c.screen_text().splitlines()[0]
+    assert c.peek(SCORE, 2) == bytes(2) and c.peek(LEVEL)[0] == 0 and count(c, [BLK]) == 0
     # P1 takes either controller
     c.joyport("down", port=1); c.wait(0.2); c.joyport(port=1)
     assert c.peek(ND)[0] == 2
@@ -154,8 +173,11 @@ with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     assert xs - {0}, xs
 
     # solo: one snake, high score
-    c.poke(WINS, bytes([0, 4])); c.poke(DEAD, bytes([1])); c.wait(1.5)  # computer takes the match
-    assert "COMPUTER WINS THE MATCH" in c.screen_text()
+    # an apple taking P1 to 50 ends the match mid-round
+    c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
+    c.poke(SCORE, bytes([0x49])); c.poke(head(c, 0) + 40, bytes([APPLE]))
+    step(c); c.wait(0.5)
+    assert "PLAYER 1 WINS THE MATCH" in c.screen_text(), c.screen_text()
     fire(c, 2); c.wait(0.5)
     assert "<   VS COMPUTER   >" in c.screen_text(), c.screen_text()
     c.joyport("left"); c.wait(0.2); c.joyport(); c.wait(0.2)
