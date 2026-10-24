@@ -31,9 +31,6 @@ RESP_CHECKPOINT_INFO, RESP_JAM, RESP_STOPPED = 0x11, 0x61, 0x62
 CHECK_OPS = {"load": 1, "store": 2, "exec": 4}
 
 
-# Agent input convention (programs opt in): OR a bit into JOY_PRESS (the program clears it after
-# reading -> edge-triggered), or set bits in JOY_HOLD (level-triggered).
-JOY_PRESS, JOY_HOLD = 0x033C, 0x033E
 JOY_BITS = {"up": 1, "down": 2, "left": 4, "right": 8, "fire": 16}
 
 
@@ -362,14 +359,6 @@ class Machine:
     def joyport(self, *buttons, port=None):
         """Hold buttons on a real control port (see subclasses)."""
         raise NotImplementedError
-
-    def joy(self, *buttons):
-        """Press buttons (up/down/left/right/fire) via the edge-triggered JOY_PRESS byte."""
-        self.poke(JOY_PRESS, self.peek(JOY_PRESS)[0] | sum(JOY_BITS[b] for b in buttons))
-
-    def joy_hold(self, *buttons):
-        """Set the held buttons (level-triggered JOY_HOLD byte); no args releases all."""
-        self.poke(JOY_HOLD, sum(JOY_BITS[b] for b in buttons))
 
     def type(self, text, raw=False):
         """Feed text to the keyboard buffer as if typed. \\n = RETURN.

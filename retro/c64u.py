@@ -2,7 +2,7 @@
 
 Same API as `C64` where the hardware allows. The machine runs freely, so unlike VICE nothing is
 paused between commands. screenshot/gif are re-rendered from DMA (see `screen_image`), and no joyport (DMA writes to $DC00 are overwritten
-by the KERNAL scan); use the opt-in `joy()`/`joy_hold()` memory bytes.
+by the KERNAL scan); poke the program's own input variables instead.
 """
 import subprocess
 import time
@@ -76,7 +76,7 @@ class C64U(C64):
         time.sleep(0.3)
 
     def joyport(self, *buttons, port=2):
-        raise NotImplementedError("DMA writes to $DC00/$DC01 do not stick; use joy()/joy_hold()")
+        raise NotImplementedError("DMA writes to $DC00/$DC01 do not stick; poke the program's input vars")
 
     def screen_image(self, scale=2, border=False):
         """Re-render the screen from DMA (no video capture on this unit): text modes only, no sprites.

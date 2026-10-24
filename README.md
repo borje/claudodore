@@ -19,7 +19,6 @@ with C64() as c:
     c.screenshot("screen.png")         # real VIC-II output as PNG (shows sprites, colours, graphics)
     c.peek(0xD020, 1); c.poke(0x0400, b"A")   # raw memory access
     c.sprites(); c.color_ram()         # VIC sprite state / colour RAM
-    c.joy("fire"); c.joy_hold("left")   # agent input bytes $033C/$033E (program must read them)
     c.joyport("fire", "left")          # real joystick port ($DC00; port=1 -> $DC01), held until next call
     c.record_gif("demo.gif", seconds=3)  # run + capture frames
     c.reload(prg)                      # reset and reload in the same VICE
