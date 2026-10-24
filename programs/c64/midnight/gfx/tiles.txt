@@ -41,15 +41,15 @@ oo#oo#oo
 ........
 ........
 
-; HUD life (pumpkin with + = green stem in the HUD rows)
-== life all deco 0
-...++...
-.oo+ooo.
-oooooooo
-o#oo#ooo
-oooooooo
-o#####oo
-.oooooo.
+; heart: HUD life icon, and one extra life per level near the checkpoint (map letter <)
+== life=< all obj:heart 2
+.##.##..
+#######.
+#######.
+#######.
+.#####..
+..###...
+...#....
 ........
 
 == thread all deco 1 hires

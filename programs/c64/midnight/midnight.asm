@@ -37,6 +37,7 @@ O_KEY  = 3
 O_EXIT = 4
 O_LAMP = 5
 O_SLOT = 6
+O_HEART = 7
 E_BAT  = 1
 E_GHOST = 2
 E_ZOMBIE = 3
@@ -163,16 +164,17 @@ cdir   = $026a
 clife  = $026b
 hatact = $026f
 eidx   = $0270
+still  = $0271          ; frames the camera has not moved
 lvwl   = $026d          ; map width in pixels
 lvwh   = $026e
 otype  = $0300          ; objects (48): type, column, row, state
 ocol   = $0330
 orow   = $0360
 ostat  = $0390
-ow     = $03c0          ; per object type 1..6 (index type-1)
-oh     = $03c6
-altlo  = $03cc
-althi  = $03d2
+ow     = $03c0          ; per object type 1..7 (index type-1)
+oh     = $03c7
+altlo  = $03ce
+althi  = $03d5
 ; enemies: spawn list (32) and active slots (5)
 sptyp  = $f600
 spcol  = $f620
@@ -1255,7 +1257,7 @@ unpd:   ; level parameters
         sta p1
         lda lt_oh_hi,x
         sta p1+1
-        ldy #5
+        ldy #6
 -       lda (p0),y
         sta ow,y
         lda (p1),y
@@ -1275,7 +1277,7 @@ unpd:   ; level parameters
         sta althi,x
         iny
         inx
-        cpx #6
+        cpx #7
         bne -
         ; enemy spawns
         ldx level
@@ -1427,6 +1429,7 @@ respawn:
         sta cact
         sta hatact
         sta dir
+        sta still
         lda #90
         sta inv
         ldx #NSLOT-1
@@ -2275,7 +2278,7 @@ oblp:   cpx nobj
 obnext: inx
         jmp oblp
 jp1:    jmp (p1)
-objtab: !word getpump, getcandy, getkey, atexit, getlamp, atslot
+objtab: !word getpump, getcandy, getkey, atexit, getlamp, atslot, getheart
 
 t0col:  lda t1
         lsr
@@ -2403,6 +2406,20 @@ getlamp:
         lda #<msglamp
         ldx #>msglamp
         jmp message
+
+; extra life, left lying there while the lives are full
+getheart:
+        lda lives
+        cmp #3
+        bcs +
+        inc lives
+        jsr erase
+        lda #1
+        ora hudd
+        sta hudd
+        lda #SFX_KEY
+        jsr sfx
++       rts
 
 atslot: lda carry
         beq +
@@ -2598,7 +2615,7 @@ hudtop: +print 0, 0, 3, txscore
         lda #<hisc
         ldx #16
         jsr bcd6
-        ; lives: 3 pumpkins from column 23, candy: 5 from column 30
+        ; lives: 3 hearts from column 23, candy: 5 from column 30
         ldx #0
 -       stx t5
         txa
@@ -2807,7 +2824,8 @@ msgtime: !scr "midnight is coming... too slow!", 0
 
 ; ================================================================ enemies
 ; spawn table -> sprite slots when they come near the camera
-spawns: lda #4                  ; a few spawn points per frame
+spawns: jsr lurk
+        lda #4                  ; a few spawn points per frame
         sta spcnt
 spl:    ldy spnext
         iny
@@ -2862,6 +2880,65 @@ spon:   jsr activate
 spn3:   jmp spl
 spcnt:  !byte 0
 spnext: !byte 0
+
+; camera still for 5 s: a free ghost (else bat) comes in from the screen edge on its side
+lurk:   lda dir
+        beq +
+        lda #0
+        sta still
+        rts
++       inc still
+        lda still
+        cmp #250
+        bcc lkno
+        lda #0
+        sta still
+        lda cxmaxl              ; single screen: everything is in view already
+        ora cxmaxh
+        beq lkno
+        lda #E_GHOST
+        jsr lkfind
+        bcc +
+        lda #E_BAT
+        jsr lkfind
+        bcs lkno
++       jsr activate
+        lda spact,y
+        beq lkno                ; no free slot
+        lda edx,x               ; it faces the player: left of it -> left edge
+        bmi +
+        lda cxl
+        sec
+        sbc #40
+        sta exl,x
+        lda cxh
+        sbc #0
+        sta exh,x
+        rts
++       lda cxl
+        clc
+        adc #<320
+        sta exl,x
+        lda cxh
+        adc #>320
+        sta exh,x
+lkno:   rts
+
+; Y = an idle, live spawn point of type A (C clear), C set if none
+lkfind: sta t2
+        ldy nen
+-       dey
+        bmi +
+        lda sptyp,y
+        cmp t2
+        bne -
+        lda spact,y
+        ora spdead,y
+        bne -
+        clc
+        rts
++       sec
+        rts
 
 ; t0/t1 = spcol(y)*8 - cx + 48
 spawnx: lda #0

@@ -332,7 +332,7 @@ class Bot:
 def goals_now(c, L):
     """Object list and the ones to go for next: pumpkins (+ key), lantern slots when carrying, else the exit."""
     n = pk(c, "nobj")
-    objs = [(t, col, row, pk(c, "ow", 6)[t - 1], pk(c, "oh", 6)[t - 1]) for t, col, row in
+    objs = [(t, col, row, pk(c, "ow", 7)[t - 1], pk(c, "oh", 7)[t - 1]) for t, col, row in
             zip(pk(c, "otype", 48)[:n], pk(c, "ocol", 48)[:n], pk(c, "orow", 48)[:n])]
     st = pk(c, "ostat", 48)[:n]
     level = pk(c, "level")

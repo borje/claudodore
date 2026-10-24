@@ -3,7 +3,7 @@
 Tiles: blocks headed `== <name> <sets> <kind> <colours> [hires]`, art rows until a blank line.
   name: 1 char = map letter, longer = only referenced from asm/levels (alt stamps, icons).
   sets: comma list of tilesets (ui,l1..l5) or `all` (same char codes in every set: allocated first).
-  kind: deco | solid | plat | hazard | obj:<pump|candy|key|exit|lamp|slot>[:<alt stamp>]
+  kind: deco | solid | plat | hazard | obj:<pump|candy|key|exit|lamp|slot|heart>[:<alt stamp>]
   colours: one digit 0-7 for the whole stamp, or digits per char row-major with `/` between rows.
   MC art: 4 pixels per char, `.` $D021, `o` $D022, `+` $D023, `#` colour RAM. hires: 8 per char, `#` set.
 Sprites: `== <name> [mirror] [own=<c>] [ovl=<c>]`, 21 rows x 12 MC pixels: `.` clear, `k` $D025 (black),
@@ -19,7 +19,7 @@ ROOT = HERE.parent.parent.parent
 OUT = ROOT / "build" / "c64"
 SETS = ["ui", "l1", "l2", "l3", "l4", "l5"]
 KINDS = {"deco": 0, "solid": 1, "plat": 2, "hazard": 3}
-OBJS = {"pump": 1, "candy": 2, "key": 3, "exit": 4, "lamp": 5, "slot": 6}
+OBJS = {"pump": 1, "candy": 2, "key": 3, "exit": 4, "lamp": 5, "slot": 6, "heart": 7}
 ENEMIES = {"b": 1, "g": 2, "z": 3, "k": 4, "s": 5, "r": 6, "y": 7, "w": 8, "p": 9, "v": 10}
 ROWS = 23
 MCBITS = {".": 0, "o": 1, "+": 2, "#": 3}
@@ -212,13 +212,13 @@ def level(path, sets, stamps, idx):
     a.append(f"{n}_nen = {len(enem)}")
     assert len(enem) <= 32, (path, len(enem))
     a.append(f"{n}_en: !byte " + ",".join(f"{t},{x},{y}" for t, x, y in enem) if enem else f"{n}_en:")
-    # per object type 1..6: w, h, alt codes pointer
-    tw = [types[t].w if t in types else 1 for t in range(1, 7)]
-    th = [types[t].h if t in types else 1 for t in range(1, 7)]
+    # per object type 1..7: w, h, alt codes pointer
+    tw = [types[t].w if t in types else 1 for t in range(1, 8)]
+    th = [types[t].h if t in types else 1 for t in range(1, 8)]
     a.append(f"{n}_ow: !byte " + ",".join(map(str, tw)))
     a.append(f"{n}_oh: !byte " + ",".join(map(str, th)))
     alts = []
-    for t in range(1, 7):
+    for t in range(1, 8):
         st = types.get(t)
         if st and st.alt:
             alts.append(f"{n}_alt{t}")

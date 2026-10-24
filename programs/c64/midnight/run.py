@@ -45,7 +45,7 @@ def load(path):
                     cx, cy = x + i % st.w, y + i // st.w
                     if cx < W and cy < 23:
                         flag[cx][cy] = f
-                if st.obj in (1, 3, 4, 6):  # pumpkin, key, exit, lantern slot
+                if st.obj in (1, 3, 4, 6, 7):  # pumpkin, key, exit, lantern slot, heart
                     items.append((ch, x, y, st.w, st.h))
     return W, flag, items, start, plats
 
@@ -301,6 +301,27 @@ def main():
         c.screenshot(OUT / "midnight_death.png")
         frame(c, 110)
         assert pk(c, "pstate") == 0 and pk(c, "lives") == lives - 1
+
+        # ---- standing still: after 5 s a ghost comes in from a screen edge
+        goto(c, 10, 20)
+        po(c, "inv", 255)
+        frame(c, 240)
+        assert 2 not in pk(c, "etype", 5), pk(c, "etype", 5)
+        frame(c, 12)
+        i = pk(c, "etype", 5).index(2)
+        d = pk(c, "exl", 5)[i] + 256 * pk(c, "exh", 5)[i] - (pk(c, "cxl") + 256 * pk(c, "cxh"))
+        assert d >= 300 or d <= -30, d
+
+        # ---- the heart by the checkpoint: stays while the lives are full, else +1 life
+        hi, heart = next((i, o) for i, o in enumerate(objects(c)) if o[0] == 7)
+        po(c, "lives", 3)
+        goto(c, heart[1], heart[2])
+        assert pk(c, "lives") == 3 and objects(c)[hi][3] == 0
+        po(c, "lives", 2)
+        goto(c, heart[1], heart[2])
+        assert pk(c, "lives") == 3 and objects(c)[hi][3] == 1, (pk(c, "lives"), objects(c)[hi])
+        frame(c, 2)
+        c.screenshot(OUT / "midnight_heart.png")
 
         # ---- the clock: time out costs a life and restarts the clock
         h, m = pk(c, "endh"), pk(c, "endm")  # one game minute before the end (BCD minutes)
