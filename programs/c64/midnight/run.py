@@ -312,7 +312,7 @@ def main():
         d = pk(c, "exl", 5)[i] + 256 * pk(c, "exh", 5)[i] - (pk(c, "cxl") + 256 * pk(c, "cxh"))
         assert d >= 300 or d <= -30, d
 
-        # ---- the heart by the checkpoint: stays while the lives are full, else +1 life
+        # ---- the heart: stays while the lives are full, else +1 life
         hi, heart = next((i, o) for i, o in enumerate(objects(c)) if o[0] == 7)
         po(c, "lives", 3)
         goto(c, heart[1], heart[2])

@@ -41,7 +41,7 @@ oo#oo#oo
 ........
 ........
 
-; heart: HUD life icon, and one extra life per level near the checkpoint (map letter <)
+; heart: HUD life icon, and one extra life per level, high up off the main path (map letter <)
 == life=< all obj:heart 2
 .##.##..
 #######.
