@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from retro import VIC20, assemble
+from retro import VIC20, assemble, built
 
 # (buttons, $9111 mask/value, $9120 mask/value): lines are active low
 MASK_A, MASK_B = 0x3C, 0x80
@@ -14,8 +14,9 @@ CASES = [
     (("up", "fire"), 0x18, 0x80),
 ]
 
+prg = built(assemble(Path(__file__).with_name("joyport.asm"), EXP=0))
 with VIC20(mem=0) as c:
-    c.start(assemble(Path(__file__).with_name("joyport.asm"), EXP=0))
+    c.start(prg)
     for buttons, a, b in CASES:
         c.joyport(*buttons)
         c.wait(0.5)

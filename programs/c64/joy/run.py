@@ -1,9 +1,10 @@
 from pathlib import Path
 
-from retro import C64, assemble
+from retro import C64, assemble, built
 
+prg = built(assemble(Path(__file__).with_name("joy.asm")))
 with C64() as c:
-    c.start(assemble(Path(__file__).with_name("joy.asm")))
+    c.start(prg)
     c.wait(0.5)
     c.joy("fire", "left")
     c.wait(0.2)

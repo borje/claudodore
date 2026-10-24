@@ -2,7 +2,7 @@ import struct
 import sys
 from pathlib import Path
 
-from retro import C64, assemble
+from retro import C64, assemble, built
 from retro.vice import CMD_KEYBOARD_FEED
 
 HL, HL2 = 0x033F, 0x0340
@@ -26,8 +26,9 @@ def text(c, col, row, n):
     return bytes(c.peek(0x0400 + cell(col, row), n))
 
 
+prg = built(assemble(Path(__file__).with_name("piano.asm")))
 with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
-    c.start(assemble(Path(__file__).with_name("piano.asm")))
+    c.start(prg)
     c.wait(0.5)
     if sys.argv[1:] == ["play"]:  # interactive: play on the real keyboard until the window is closed
         c.resume()

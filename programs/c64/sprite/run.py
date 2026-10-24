@@ -1,9 +1,10 @@
 from pathlib import Path
 
-from retro import BUILD, C64, assemble
+from retro import BUILD, C64, assemble, built
 
+prg = built(assemble(Path(__file__).with_name("sprite.asm")))
 with C64() as c:
-    c.start(assemble(Path(__file__).with_name("sprite.asm")))
+    c.start(prg)
     c.wait(1)
     p1 = tuple(c.peek(0xD000, 2))
     c.screenshot(BUILD / "c64" / "sprite1.png")

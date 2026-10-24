@@ -4,9 +4,19 @@ Default output: build/<machine>/<name>.prg, where <machine> is the directory abo
 own dir (programs/<machine>/<name>/...), so c64 and vic20 programs of the same name don't collide.
 """
 import subprocess
+import sys
 from pathlib import Path
 
 BUILD = Path(__file__).resolve().parent.parent / "build"
+
+
+def built(*prgs):
+    """Wrap a run.py's build step. `run.py build` prints the PRG path(s) and exits (the justfile's
+    `just build`/`just upload` use this); otherwise returns the path, or a tuple for several."""
+    if sys.argv[1:] == ["build"]:
+        print(*prgs, sep="\n")
+        sys.exit()
+    return prgs[0] if len(prgs) == 1 else prgs
 
 
 def _run(cmd, tool, out):

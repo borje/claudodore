@@ -1,12 +1,13 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, VIC20, assemble
+from retro import BUILD, VIC20, assemble, built
 
 PX, PY, CELLS, SCORE, LINES, BOARD, NXT = 0x1B00, 0x1B01, 0x1B04, 0x1B1D, 0x1B1F, 0x1A00, 0x1B25
 
+prg = built(assemble(Path(__file__).with_name("tetris.asm")))
 with VIC20(mem=0, warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
-    c.start(assemble(Path(__file__).with_name("tetris.asm")))
+    c.start(prg)
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
         c.resume()
         c.proc.wait()

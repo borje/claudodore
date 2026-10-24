@@ -1,10 +1,11 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, C64, assemble
+from retro import BUILD, C64, assemble, built
 
+prg = built(assemble(Path(__file__).with_name("lea.asm")))
 with C64(warp=False) as c:  # a music demo: run.py is meant to be heard
-    c.start(assemble(Path(__file__).with_name("lea.asm")))
+    c.start(prg)
     if "play" in sys.argv:  # just play, no checks (they pause VICE and glitch audio); Ctrl-C quits
         c.run(1e9)
     c.run(10)  # listen first: every peek/screenshot pauses VICE and glitches the audio

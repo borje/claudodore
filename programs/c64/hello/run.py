@@ -1,9 +1,9 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, C64, assemble
+from retro import BUILD, C64, assemble, built
 
-prg = assemble(Path(__file__).with_name("hello.asm"))
+prg = built(assemble(Path(__file__).with_name("hello.asm")))
 print("assembled:", prg)
 
 with C64() as c:

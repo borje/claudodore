@@ -6,13 +6,13 @@ Teleports go through the game's own respawn: poke the checkpoint cell, kill the 
 import sys
 from pathlib import Path
 
-from retro import BUILD, C64, assemble, labels
+from retro import BUILD, C64, assemble, built, labels
 
 sys.path.insert(0, str(Path(__file__).parent))
 import gen  # noqa: E402
 
 OUT = BUILD / "c64"
-prg = assemble(gen.main(), out=OUT / "midnight.prg", symbols=OUT / "midnight.sym")
+prg = built(assemble(gen.main(), out=OUT / "midnight.prg", symbols=OUT / "midnight.sym"))
 S = labels(OUT / "midnight.sym")
 
 

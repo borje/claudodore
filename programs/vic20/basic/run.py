@@ -1,10 +1,11 @@
 import struct
 from pathlib import Path
 
-from retro import BUILD, VIC20, basic
+from retro import BUILD, VIC20, basic, built
 
-for mem, load in ((0, 0x1001), (8, 0x1201), (16, 0x1201)):
-    prg = basic(Path(__file__).with_name("squares.bas"), out=BUILD / "vic20" / f"squares{mem}.prg", load=load)
+MEMS = ((0, 0x1001), (8, 0x1201), (16, 0x1201))
+prgs = built(*(basic(Path(__file__).with_name("squares.bas"), out=BUILD / "vic20" / f"squares{m}.prg", load=a) for m, a in MEMS))
+for (mem, _), prg in zip(MEMS, prgs):
     for how in ("inject", "autostart"):
         with VIC20(mem=mem) as c:
             c.start()

@@ -1,10 +1,11 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, VIC20, assemble
+from retro import BUILD, VIC20, assemble, built
 
-for mem in (0, 8, 16):  # unexpanded, 8K, 16K
-    prg = assemble(Path(__file__).with_name("hello.asm"), out=BUILD / "vic20" / f"hello{mem}.prg", EXP=mem)
+MEMS = (0, 8, 16)  # unexpanded, 8K, 16K
+prgs = built(*(assemble(Path(__file__).with_name("hello.asm"), out=BUILD / "vic20" / f"hello{m}.prg", EXP=m) for m in MEMS))
+for mem, prg in zip(MEMS, prgs):
     print(f"--- mem={mem}K assembled:", prg)
     with VIC20(mem=mem) as c:
         c.start(prg)  # boots, injects the PRG into RAM, types RUN

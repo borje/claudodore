@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from retro import C64, assemble
+from retro import C64, assemble, built
 
 
 def seen(c, addr):
@@ -8,8 +8,9 @@ def seen(c, addr):
     return c.peek(addr)[0] & 0x1F
 
 
+prg = built(assemble(Path(__file__).with_name("joyport.asm")))
 with C64() as c:
-    c.start(assemble(Path(__file__).with_name("joyport.asm")))
+    c.start(prg)
     c.joyport()                                  # nothing pressed, port 2 ($DC00)
     assert seen(c, 0x0400) == 0x1F
     c.joyport("fire")

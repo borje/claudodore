@@ -1,7 +1,7 @@
 import time
 from pathlib import Path
 
-from retro import C64, assemble
+from retro import C64, assemble, built
 
 COUNT, HOOKS, HOOK = 0xC000, 0xC002, 0x0840
 
@@ -10,8 +10,9 @@ def count(c):
     return int.from_bytes(c.peek(COUNT, 2), "little")
 
 
+prg = built(assemble(Path(__file__).with_name("frames.asm")))
 with C64() as c:  # warp: frame counts must come out exact anyway
-    c.start(assemble(Path(__file__).with_name("frames.asm")))
+    c.start(prg)
     assert c.run_until(HOOK), "hook never ran"
     h, n = c.peek(HOOKS)[0], count(c)
     assert c.run_until(HOOK), "hook not hit again"

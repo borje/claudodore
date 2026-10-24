@@ -1,9 +1,9 @@
 import struct
 from pathlib import Path
 
-from retro import BUILD, C64, basic
+from retro import BUILD, C64, basic, built
 
-prg = basic(Path(__file__).with_name("squares.bas"))
+prg = built(basic(Path(__file__).with_name("squares.bas")))
 
 for how in ("inject", "autostart"):
     with C64() as c:

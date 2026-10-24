@@ -19,6 +19,7 @@ Needs system tools: `acme`, `cc65` (`cl65`), `x64sc` (VICE; macOS: `brew install
 - VICE stdout/stderr go to `/tmp/vice_<port>.log`. Port is picked free per instance.
 - Checkpoints/warp: `uv run programs/c64/frames/run.py` (asserts exact frame counts under warp, prints the speed)
 - Sprite demo: `uv run programs/c64/sprite/run.py` (asserts sprite 0 moves in X and Y, writes `build/c64/sprite{1,2}.png`)
+- Build only / upload to the C64 Ultimate: `just build` / `just upload` in a program dir. Both call `run.py build`: each run.py wraps its build step in `built(...)`, which prints the PRG path(s) and exits on that argument (new programs must do the same). `upload` is c64-only, to `/Usb0/c64/<prg name>`.
 - No linter, no pytest suite; each `run.py` is a script; new programs follow the same pattern.
 
 ## Architecture / gotchas

@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, C64, assemble
+from retro import BUILD, C64, assemble, built
 
 RLO, RHI = 0xC000, 0xC100
 HD, DIR, ND, GROW, SCORE, WINS = 0xC300, 0xC304, 0xC306, 0xC308, 0xC310, 0xC312
@@ -39,8 +39,9 @@ def start_round(c, port):
     c.poke(SPEED, bytes([250])); c.poke(TICK, bytes([250])); c.wait(0.05)
 
 
+prg = built(assemble(Path(__file__).with_name("snake.asm")))
 with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
-    c.start(assemble(Path(__file__).with_name("snake.asm")))
+    c.start(prg)
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
         c.resume()
         c.proc.wait()

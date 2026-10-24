@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from retro import BUILD, C64, assemble
+from retro import BUILD, C64, assemble, built
 
 CTX = 0xC160  # the active player's state (P1 between frames), field offsets as in tetris.asm
 PX, PY, PID, CELLS, GCNT, SCORE, LINES, NXT, GARB, DFULL, GST = (CTX + o for o in (0, 1, 2, 4, 13, 15, 18, 22, 23, 29, 31))
@@ -10,7 +10,7 @@ KINJ, KCH = 0x33D, 0x33F  # agent key input: hotkey bits P 1, G 2, M 4, H 8; one
 SND, MON, MI = 0xC129, 0xC131, 0xC132
 SCR = 0x400
 
-prg = assemble(Path(__file__).with_name("tetris.asm"))
+prg = built(assemble(Path(__file__).with_name("tetris.asm")))
 with C64(warp=sys.argv[1:] != ["play"]) as c:  # a human plays in real time
     c.start(prg)
     if sys.argv[1:] == ["play"]:  # interactive: play with VICE's joystick keys until the window is closed
