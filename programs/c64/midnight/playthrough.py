@@ -447,6 +447,7 @@ def play_level(c, bot):
             print(f"   at {cur} px={s0.x} py={s0.py} gnd={s0.gnd} -> {(tx, tr)}: {'ok' if inp else 'no'}")
         if inp is None:
             banned.add((cur, path[i]) if i == 1 else (path[i - 1], path[i]))
+            visits[spot] -= 1  # nothing played: try the next route from the same spot
             continue
         bot.play(L, s0, inp)
     used = bot.frames - f0

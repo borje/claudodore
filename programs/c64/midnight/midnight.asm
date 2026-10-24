@@ -2823,20 +2823,47 @@ spl:    ldy spnext
         lda spact,y
         ora spdead,y
         bne spn3
-        jsr spawnx              ; t0/t1 = spawn x - camera x + 32: on when 0..359 (x -32..327)
+        jsr spawnx              ; t0/t1 = spawn x - camera x + 48
+        lda cxmaxl              ; single screen (L5), gears, pendulums: anywhere at x -32..327
+        ora cxmaxh
+        beq spany
+        lda sptyp,y
+        cmp #E_GEAR
+        beq spany
+        cmp #E_BOB
+        beq spany
+        ; monsters only just off screen (x -48..-17 or 312..343): they come in from an edge
         lda t1
-        beq +
-        cmp #1
+        bne +
+        lda t0
+        cmp #32
+        bcc spon
+        bcs spn3
++       cmp #1
         bne spn3
         lda t0
-        cmp #104
+        sec
+        sbc #104
+        cmp #32
+        bcc spon
         bcs spn3
-+       jsr activate
+spany:  lda t1
+        bne +
+        lda t0
+        cmp #16
+        bcs spon
+        bcc spn3
++       cmp #1
+        bne spn3
+        lda t0
+        cmp #120
+        bcs spn3
+spon:   jsr activate
 spn3:   jmp spl
 spcnt:  !byte 0
 spnext: !byte 0
 
-; t0/t1 = spcol(y)*8 - cx + 32
+; t0/t1 = spcol(y)*8 - cx + 48
 spawnx: lda #0
         sta t1
         lda spcol,y
@@ -2847,7 +2874,7 @@ spawnx: lda #0
         asl
         rol t1
         clc
-        adc #32
+        adc #48
         sta t0
         lda t1
         adc #0

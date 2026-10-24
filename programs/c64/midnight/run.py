@@ -246,8 +246,10 @@ def main():
         assert t[-1].startswith("LEVEL 1 THE GRAVEYARD CANDY 00/20") and t[-1].endswith("9:00"), t[-1]
         assert pk(c, "lives") == 3 and pk(c, "ammo") == 5 and pk(c, "npump") == 20
         c.screenshot(OUT / "midnight_l1.png")
+        po(c, "inv", 255)  # enemies walk in from the right edge: don't die mid-measurement
         c.joyport("right")
         frame(c, 60)
+        po(c, "inv", 255)
         f0, a0 = pk(c, "frame"), pk(c, "anim")
         c.run_frames(200)
         f1, a1 = pk(c, "frame"), pk(c, "anim")
@@ -267,9 +269,13 @@ def main():
         assert [o for o in objects(c) if o[1:3] == pump[1:3]][0][3] == 1
 
         # ---- candy throw kills a zombie
-        goto(c, 10, 20)  # zombie spawns at column 16 on the ground
+        goto(c, 10, 20)  # zombie at column 16 is in view: it must not pop up there
         frame(c, 12)  # spawn points are checked a few per frame
-        assert 3 in pk(c, "etype", 5)
+        assert 3 not in pk(c, "etype", 5), pk(c, "etype", 5)
+        goto(c, 35, 20)  # camera x 132: the zombie at column 58 is just off the right edge
+        frame(c, 12)
+        i = pk(c, "etype", 5).index(3)
+        assert pk(c, "exl", 5)[i] + 256 * pk(c, "exh", 5)[i] - (pk(c, "cxl") + 256 * pk(c, "cxh")) >= 312
         sc = pk(c, "score", 3)
         ammo = pk(c, "ammo")
         po(c, "facing", 0)
@@ -277,12 +283,12 @@ def main():
         frame(c, 2)
         c.joyport()
         assert pk(c, "ammo") == ammo - 1 and pk(c, "cact") == 1
-        frame(c, 30)
+        frame(c, 60)  # it walks in from the edge, candy flies to meet it
         assert 3 not in pk(c, "etype", 5), "zombie should be gone"
         assert pk(c, "score", 3)[1] == sc[1] + 2, (pk(c, "score", 3), sc)  # +200
 
         # ---- an enemy touch kills (no luck): hat drops, life lost, back at the checkpoint
-        goto(c, 10, 20)
+        goto(c, 35, 20)
         lives = pk(c, "lives")
         frame(c, 12)
         i = next(i for i, e in enumerate(pk(c, "etype", 5)) if e)
